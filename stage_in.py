@@ -21,101 +21,132 @@ logging.basicConfig(format=log_format, level=logging.WARNING)
 logger = logging.getLogger('stage_in')
 
 
-def create_inputs_dir(inputs_dir: str = "inputs") -> str:
-	"""Create inputs directory."""
-
-	if not os.path.isdir(inputs_dir):
-		os.makedirs(inputs_dir)
-	return inputs_dir
+# AWS S3 bucket access variables
+AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID')
+AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY')
 
 
-def stage_in_http(url: str) -> str:
-	"""Stage in a file from a HTTP/HTTPS URL.
-	Args:
-		url (str): HTTP/HTTPS URL of input file
-	Returns:
-		str: relative path to the staged-in input file
-	"""
+class Util:
+	@staticmethod
+	def create_inputs_dir(inputs_dir: str = "inputs") -> str:
+		"""Create inputs directory."""
 
-	# create inputs directory
-	inputs_dir = create_inputs_dir()
+		if not os.path.isdir(inputs_dir):
+			os.makedirs(inputs_dir)
+		return inputs_dir
 
-	# download input file
-	p = urlparse(url)
-	staged_file = os.path.join(inputs_dir, os.path.basename(p.path))
-	r = requests.get(url, stream=True, verify=False)
-	r.raise_for_status()
-	r.raw.decode_content = True
-	with open(staged_file, "wb") as f:
-		shutil.copyfileobj(r.raw, f)
-
-	return staged_file
-
-
-def stage_in_s3(url: str, unsigned: bool = False) -> str:
-	"""Stage in a file from an S3 URL.
-	Args:
-		url (str): S3 URL of input file
-		unsigned (bool): send unsigned request
-	Returns:
-		str: relative path to the staged-in input file
-	"""
-
-	# create inputs directory
-	inputs_dir = create_inputs_dir()
-
-	# download input file
-	p = urlparse(url)
-	staged_file = os.path.join(inputs_dir, os.path.basename(p.path))
-	if unsigned:
-		s3 = boto3.client("s3", config=Config(signature_version=UNSIGNED))
-	else:
-		s3 = boto3.client("s3")
-	s3.download_file(p.netloc, p.path[1:], staged_file)
-
-	return staged_file
+	@staticmethod
+	def is_s3_url(url: str) -> bool:
+		"""Attempts to determine if a given URL refers to an S3 bucket.
+		
+		Returns true if 'url' follows the general format of an S3 URL.
+		Returns false otherwise.
+		"""
+		split = url.split('.')
+		# Virtual-hosted–style access (https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-bucket-intro.html)
+		if len(split) >= 5 and split[1] == 's3' and split[3] == 'amazonaws' and split[4].startswith('com/'):
+			return True
+			# Path-style access
+		if len(split) >= 4 and (split[0] == 'https://s3' or split[0] == 's3') and split[2] == 'amazonaws' and split[3].startswith('com/'):
+			return True
+		# Accessing a bucket through S3 access points
+		if len(split) >= 5 and split[1] == 's3-accesspoint' and split[3] == 'amazonaws' and split[4].startswith('com'):
+			return True
+		# Accessing a bucket using S3://
+		if path.startswith('S3://'):
+			return True
+		return False
 
 
-def stage_in_maap(
-	collection_concept_id: str,
-	readable_granule_name: str,
-	# TODO: remove these commented parameters if there is no need for them
-	# user_token: str,
-	# application_token: str,
-	maap_host: str = "api.ops.maap-project.org",
-) -> str:
-	"""Stage in a MAAP dataset granule.
-	Args:
-		collection_concept_id (str): the collection-concept-id of the dataset collection
-		readable_granule_name (str): either the GranuleUR or producer granule ID
-		user_token (str): MAAP user token (retrieved from https://auth.ops.maap-project.org/)
-		application_token (str): MAAP application token
-		maap_host (str): IP or FQDN of MAAP API host
-	Returns:
-		str: relative path to the staged-in input file
-	"""
+class MAAP:
+	@staticmethod
+	def stage_in_http(url: str) -> str:
+		"""Stage in a file from a HTTP/HTTPS URL.
+		Args:
+			url (str): HTTP/HTTPS URL of input file
+		Returns:
+			str: relative path to the staged-in input file
+		"""
 
-	# create inputs directory
-	inputs_dir = create_inputs_dir()
+		# create inputs directory
+		inputs_dir = create_inputs_dir()
 
-	# instantiate maap object
-	maap = MAAP(maap_host=maap_host)
+		# download input file
+		p = urlparse(url)
+		staged_file = os.path.join(inputs_dir, os.path.basename(p.path))
+		r = requests.get(url, stream=True, verify=False)
+		r.raise_for_status()
+		r.raw.decode_content = True
+		with open(staged_file, "wb") as f:
+			shutil.copyfileobj(r.raw, f)
 
-	# get granule object
-	granule = maap.searchGranule(
-		collection_concept_id=collection_concept_id,
-		readable_granule_name=readable_granule_name,
-	)[0]
+		return staged_file
 
-	# parse url
-	url = granule.getDownloadUrl()
-	p = urlparse(url)
+	@staticmethod
+	def stage_in_s3(url: str, unsigned: bool = False) -> str:
+		"""Stage in a file from an S3 URL.
+		Args:
+			url (str): S3 URL of input file
+			unsigned (bool): send unsigned request
+		Returns:
+			str: relative path to the staged-in input file
+		"""
 
-	# download input file
-	staged_file = os.path.join(inputs_dir, os.path.basename(p.path))
-	granule.getData(destpath=inputs_dir)
+		# create inputs directory
+		inputs_dir = create_inputs_dir()
 
-	return staged_file
+		# download input file
+		p = urlparse(url)
+		staged_file = os.path.join(inputs_dir, os.path.basename(p.path))
+		if unsigned:
+			s3 = boto3.client("s3", config=Config(signature_version=UNSIGNED))
+		else:
+			s3 = boto3.client("s3")
+		s3.download_file(p.netloc, p.path[1:], staged_file)
+
+		return staged_file
+
+	@staticmethod
+	def stage_in_maap(
+		collection_concept_id: str,
+		readable_granule_name: str,
+		# TODO: remove these commented parameters if there is no need for them
+		# user_token: str,
+		# application_token: str,
+		maap_host: str = "api.ops.maap-project.org",
+	) -> str:
+		"""Stage in a MAAP dataset granule.
+		Args:
+			collection_concept_id (str): the collection-concept-id of the dataset collection
+			readable_granule_name (str): either the GranuleUR or producer granule ID
+			user_token (str): MAAP user token (retrieved from https://auth.ops.maap-project.org/)
+			application_token (str): MAAP application token
+			maap_host (str): IP or FQDN of MAAP API host
+		Returns:
+			str: relative path to the staged-in input file
+		"""
+
+		# create inputs directory
+		inputs_dir = create_inputs_dir()
+
+		# instantiate maap object
+		maap = MAAP(maap_host=maap_host)
+
+		# get granule object
+		granule = maap.searchGranule(
+			collection_concept_id=collection_concept_id,
+			readable_granule_name=readable_granule_name,
+		)[0]
+
+		# parse url
+		url = granule.getDownloadUrl()
+		p = urlparse(url)
+
+		# download input file
+		staged_file = os.path.join(inputs_dir, os.path.basename(p.path))
+		granule.getData(destpath=inputs_dir)
+
+		return staged_file
 
 
 def dispatch(args):
@@ -133,7 +164,7 @@ def dispatch(args):
 	return args.func(*[getattr(args, param) for param in sig.parameters])
 
 
-def main():
+def main_old():
 	"""Process command line."""
 
 	parser = argparse.ArgumentParser(description=__doc__)
@@ -177,6 +208,19 @@ def main():
 	print(staged_file)
 
 	return staged_file
+
+
+def main():
+	path = sys.argv[1]
+
+	# Attempt to determine if the URL refers to an S3 bucket
+	if Util.is_s3_url(path):
+		print(MAAP.stage_in_s3(path))
+	# Stage-in the URL via a GET REQUEST instead
+	else:
+		print(MAAP.stage_in_url(path))
+
+	return 0
 
 
 if __name__ == '__main__':
