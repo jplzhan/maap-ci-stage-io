@@ -257,5 +257,5 @@ dependencies:
   - zstd=1.5.2
   - pip:
     - https://github.com/MAAP-Project/maap-py/archive/master.zip
-    - https://github.com/MAAP-Project/maap-documentation-examples/archive/cd37f0dbfac7608298f52599b7dc6796f4f3fa32.zip
+    - https://github.com/MAAP-Project/maap-documentation-examples/archive/904a59d7de66a6edf3fe9d81dae7c6b274e2b193.zip
 prefix: /srv/conda/envs/notebook
