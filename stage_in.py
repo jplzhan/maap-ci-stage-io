@@ -28,7 +28,7 @@ AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY')
 
 class Util:
 	@staticmethod
-	def create_inputs_dir(inputs_dir: str = "inputs") -> str:
+	def create_inputs_dir(inputs_dir: str = os.path.join(os.getcwd(), "inputs")) -> str:
 		"""Create inputs directory."""
 
 		if not os.path.isdir(inputs_dir):
@@ -53,7 +53,7 @@ class Util:
 		if len(split) >= 5 and split[1] == 's3-accesspoint' and split[3] == 'amazonaws' and split[4].startswith('com'):
 			return True
 		# Accessing a bucket using S3://
-		if path.startswith('S3://'):
+		if url.startswith('S3://'):
 			return True
 		return False
 
@@ -69,7 +69,7 @@ class MAAP:
 		"""
 
 		# create inputs directory
-		inputs_dir = create_inputs_dir()
+		inputs_dir = Util.create_inputs_dir()
 
 		# download input file
 		p = urlparse(url)
@@ -211,16 +211,31 @@ def main_old():
 
 
 def main():
-	path = sys.argv[1]
+    staging_type = sys.argv[1]
+    staging_path = sys.argv[2]
 
-	# Attempt to determine if the URL refers to an S3 bucket
-	if Util.is_s3_url(path):
-		print(MAAP.stage_in_s3(path))
-	# Stage-in the URL via a GET REQUEST instead
-	else:
-		print(MAAP.stage_in_url(path))
+    staging_map = {
+        'HTTP': [MAAP.stage_in_http, {}],
+        'S3_unsigned': [MAAP.stage_in_s3, {'unsigned': True}],
+        'S3': [MAAP.stage_in_s3, {'unsigned': False}],
+        'DAAC': [None, {}],
+        'MAAP': [MAAP.stage_in_maap, {}],
+        'Role': [None, {}],
+    }
 
-	return 0
+    func = staging_map[staging_type][0]
+    params = staging_map[staging_type][1]
+
+    if staging_type in ['HTTP', 'S3_unsigned', 'S3', 'DAAC']:
+        params['url'] = staging_path
+    else:
+        print('Currently unspported staging type: ' + staging_type)
+        return 1
+
+    dl_path = func(**params)
+    print('Downloaded: ' + dl_path)
+
+    return 0
 
 
 if __name__ == '__main__':
