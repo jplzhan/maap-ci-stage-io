@@ -76,4 +76,4 @@ By doing this, you will get to see the full object associated with `in1` as a st
 
 Notice here that there are many more fields than just `basename`. In short, we can guess that `self.dirname` refers to the directory within the docker image the CWL file is mounted into (and you can test that it is), and `self.path` is the absolute path to the mounted file within the docker image. In addition, you can use other parameters like `self.size` and `self.nameext` to perform operations relating to the size and type of file being used.
 
-This information can be found on the [official documenation](https://www.commonwl.org/v1.0/CommandLineTool.html#File), but the process of being able to use Javascript to uncover the underlying objects for more opaque usages is invaluable.
+This information corresponds to optional parameters to `File` type inputs described in the [official documenation](https://www.commonwl.org/v1.0/CommandLineTool.html#File), but nowhere under `File` is it written explicitly that `self.path` corresponds to the location mounted on disk.
