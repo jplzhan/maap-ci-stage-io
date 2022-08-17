@@ -153,19 +153,19 @@ class MAAP:
 
 
 def main(argc: int, argv: list) -> int:
-    staging_type = argv[1]
+	staging_type = argv[1]
 
-    staging_map = {
-        'HTTP': [MAAP.stage_in_http, {}],
-        'S3_unsigned': [MAAP.stage_in_s3, {'unsigned': True}],
-        'S3': [MAAP.stage_in_s3, {'unsigned': False}],
-        'DAAC': [None, {}],
-        'MAAP': [MAAP.stage_in_maap, {}],
-        'Role': [None, {}],
-    }
+	staging_map = {
+		'HTTP': [MAAP.stage_in_http, {}],
+		'S3_unsigned': [MAAP.stage_in_s3, {'unsigned': True}],
+		'S3': [MAAP.stage_in_s3, {'unsigned': False}],
+		'DAAC': [None, {}],
+		'MAAP': [MAAP.stage_in_maap, {}],
+		'Role': [None, {}],
+	}
 
-    func = staging_map[staging_type][0]
-    params = staging_map[staging_type][1]
+	func = staging_map[staging_type][0]
+	params = staging_map[staging_type][1]
 
 	try:
 		if staging_type in ['HTTP', 'S3_unsigned']:
@@ -223,10 +223,10 @@ def main(argc: int, argv: list) -> int:
 		print(e.message)
 		return 1
 
-    dl_path = func(**params)
-    print('Downloaded ({}): '.format(staging_type) + dl_path)
+	dl_path = func(**params)
+	print('Downloaded ({}): '.format(staging_type) + dl_path)
 
-    return 0
+	return 0
 
 
 if __name__ == '__main__':
