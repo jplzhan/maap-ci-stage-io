@@ -21,9 +21,12 @@ logging.basicConfig(format=log_format, level=logging.WARNING)
 logger = logging.getLogger('stage_in')
 
 
-# AWS S3 bucket access variables
-AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID')
-AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY')
+class ArgcException(Exception):
+	"""Raised when the number of provided arguments is less than expected."""
+	def __init__(self, staging_type, received, expected):
+		self.expected = expected
+		self.message = '{t}: Not enough arguments (recieved {c}, expected {e})'
+		self.message = message.format(t=staging_type, c=(received-1), e=expected)
 
 
 class Util:
@@ -149,70 +152,8 @@ class MAAP:
 		return staged_file
 
 
-def dispatch(args):
-	"""Dispatch to appropriate function."""
-
-	# turn on debugging if specified
-	if args.debug:
-		logger.setLevel(logging.DEBUG)
-	logger.debug("args: %s" % args)
-
-	# dispatch args to the underlying stage-in function
-	sig = inspect.signature(args.func)
-	logger.debug(f"func: {args.func}")
-	logger.debug(f"sig: {sig}")
-	return args.func(*[getattr(args, param) for param in sig.parameters])
-
-
-def main_old():
-	"""Process command line."""
-
-	parser = argparse.ArgumentParser(description=__doc__)
-	parser.add_argument('--debug', '-d', action='store_true',
-						help="turn on debugging")
-	subparsers = parser.add_subparsers(help='Functions')
-
-	# parser for staging in file from an HTTP/HTTPS URL
-	parser_http = subparsers.add_parser('http', help="stage in from HTTP/HTTPS URL")
-	parser_http.add_argument('url', help="HTTP/HTTPS URL of the input file")
-	parser_http.set_defaults(func=stage_in_http)
-
-	# parser for staging in file from an S3 URL
-	parser_s3 = subparsers.add_parser('s3', help="stage in from S3 URL")
-	parser_s3.add_argument('url', help="S3 URL of the input file")
-	parser_s3.add_argument('--unsigned', '-u', action='store_true', help="send unsigned request")
-	parser_s3.set_defaults(func=stage_in_s3)
-
-	# parser for staging in file from an MAAP dataset granule
-	parser_maap = subparsers.add_parser('maap', help="stage in MAAP dataset granule")
-	parser_maap.add_argument('collection_concept_id', help="the collection-concept-id of the dataset collection")
-	parser_maap.add_argument('readable_granule_name', help="either the GranuleUR or producer granule ID")
-	# TODO: remove these commented parameters if there is no need for them
-	# parser_maap.add_argument('user_token', help="MAAP user token (retrieved from https://auth.ops.maap-project.org/)")
-	# parser_maap.add_argument('application_token', help="MAAP application token")
-	parser_maap.add_argument('--maap_host', '-m', default='api.ops.maap-project.org', help="IP or FQDN of MAAP API host")
-	parser_maap.set_defaults(func=stage_in_maap)
-
-	# parse
-	args = parser.parse_args()
-
-	# print help
-	if len(sys.argv) == 1 or not hasattr(args, 'func'):
-		parser.print_help(sys.stderr)
-		sys.exit(1)
-
-	# dispatch to the specified stage-in function and get path to staged-in file
-	staged_file = dispatch(args)
-
-	# write out path to staged-in file to STDOUT
-	print(staged_file)
-
-	return staged_file
-
-
-def main():
-    staging_type = sys.argv[1]
-    staging_path = sys.argv[2]
+def main(argc: int, argv: list) -> int:
+    staging_type = argv[1]
 
     staging_map = {
         'HTTP': [MAAP.stage_in_http, {}],
@@ -226,17 +167,67 @@ def main():
     func = staging_map[staging_type][0]
     params = staging_map[staging_type][1]
 
-    if staging_type in ['HTTP', 'S3_unsigned', 'S3', 'DAAC']:
-        params['url'] = staging_path
-    else:
-        print('Currently unspported staging type: ' + staging_type)
-        return 1
+	try:
+		if staging_type in ['HTTP', 'S3_unsigned']:
+			expected_argc = 1
+			if argc < expected_argc + 2:
+				raise ArgcException(staging_type, argc, expected_argc)
+
+			params['url'] = argv[2]
+		elif staging_type == 'S3':
+			expected_argc = 5
+			if argc < expected_argc + 2:
+				raise ArgcException(staging_type, argc, expected_argc)
+
+			# Submit the URL as a parameter to the S3 function
+			params['url'] = argv[2]
+
+			# Create the AWS credential file with the necessary secrets
+			with open('~/.aws/credentials', 'w') as f:
+				content = '[default]'
+				content += '\naws_access_key_id = ' + argv[3]
+				content += '\nnaws_secret_access_key = ' + argv[4]
+				content += '\naws_session_token = ' + argv[5]
+				f.write(content)
+			# Append the region to the AWS config
+			with open('~/.aws/config') as f:
+				content = '[default]'
+				content += '\nregion = ' + argv[6]
+				f.write(content)
+		elif staging_type == 'DAAC':
+			expected_argc = 3
+			if argc < expected_argc + 2:
+				raise ArgcException(staging_type, argc, expected_argc)
+
+			params['url'] = argv[2]
+			params['username'] = argv[3]
+			params['password'] = argv[4]
+		elif staging_type == 'MAAP':
+			expected_argc = 2
+			if argc < expected_argc + 2:
+				raise ArgcException(staging_type, argc, expected_argc)
+
+			params['collection_concept_id'] = argv[2]
+			params['readable_granule_name'] = argv[3]
+		elif staging_type == 'Role':
+			expected_argc = 2
+			if argc < expected_argc + 2:
+				raise ArgcException(staging_type, argc, expected_argc)
+
+			params['role_arn'] = argv[2]
+			params['source_profile'] = argv[3]
+		else:
+			print('Unspported staging type: ' + staging_type)
+			return 1
+	except ArgcException as e:
+		print(e.message)
+		return 1
 
     dl_path = func(**params)
-    print('Downloaded: ' + dl_path)
+    print('Downloaded ({}): '.format(staging_type) + dl_path)
 
     return 0
 
 
 if __name__ == '__main__':
-	main()
+	main(len(sys.argv), sys.argv)
