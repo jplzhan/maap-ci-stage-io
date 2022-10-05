@@ -1,5 +1,6 @@
 import logging
 import boto3
+import shutil
 from botocore.exceptions import ClientError
 import os
 import sys
@@ -7,14 +8,19 @@ from urllib.parse import urlparse
 
 
 class AWS:
-	def __init__(self, key: str, secret: str, token: str, region: str):
-		self.session = boto3.Session(
-			aws_access_key_id=key,
-			aws_secret_access_key=secret,
-			aws_session_token=token,
-			region_name=region
-		)
-		self.client = self.session.client('s3')
+	def __init__(self, key: str, secret: str, token: str, region: str, configdir=None):
+		if configdir is None or not os.path.isdir(configdir):
+			self.session = boto3.Session(
+				aws_access_key_id=key,
+				aws_secret_access_key=secret,
+				aws_session_token=token,
+				region_name=region
+			)
+			self.client = self.session.client('s3')
+		else:
+			shutil.copytree(configdir, '~/.aws', dirs_exist_ok=True)
+			self.session = None
+			self.client = boto3.client('s3')
 
 	def upload_file(self, file_name: str, bucket: str, object_name=None):
 		"""Upload a file to an S3 bucket
@@ -55,8 +61,8 @@ class AWS:
 
 
 def main(argc, argv):
-	expected_args = 8
-	if argc != expected_args:
+	expected_args = [8, 9]
+	if argc not in expected_args:
 		print('Stage out script is being used incorrectly, {} arguments expected.'.format(expected_args))
 		return 1
 
@@ -69,13 +75,14 @@ def main(argc, argv):
 	secret = argv[3]
 	token = argv[4]
 	region = argv[5]
+	config = argv[8] if argc == 9 else None
 
 	parsed_url = urlparse(s3_url)
 	bucket = parsed_url.netloc
 	path = parsed_url.path
 
 
-	uploader = AWS(key, secret, token, region)
+	uploader = AWS(key, secret, token, region, configdir=config)
 	uploader.upload_dir(argv[6], bucket, path)
 	uploader.upload_file(argv[7], bucket, os.path.join(path, os.path.basename(argv[7])).lstrip('/'))
 
