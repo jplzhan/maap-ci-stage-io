@@ -61,30 +61,32 @@ class AWS:
 
 
 def main(argc, argv):
-	expected_args = [8, 9]
+	expected_args = [5, 8]
 	if argc not in expected_args:
 		print('Stage out script is being used incorrectly, {} arguments expected.'.format(expected_args))
 		return 1
 
-	if not os.path.exists(argv[7]):
-		print('Output notebook is missing as the last argument!')
+	if not os.path.exists(argv[2]):
+		print('Output notebook is missing as the second argument!')
 		return 1
 
-	s3_url = argv[1]
-	key = argv[2]
-	secret = argv[3]
-	token = argv[4]
-	region = argv[5]
-	config = argv[8] if argc == 9 else None
+	uploader = None
+	if argc == 8:
+		key = argv[4]
+		secret = argv[5]
+		token = argv[6]
+		region = argv[7]
+		uploader = AWS(key, secret, token, region)
+	elif argc == 5:
+		uploader = AWS('', '', '', '', configdir=argv[4])
 
+	s3_url = argv[3]
 	parsed_url = urlparse(s3_url)
 	bucket = parsed_url.netloc
 	path = parsed_url.path
 
-
-	uploader = AWS(key, secret, token, region, configdir=config)
-	uploader.upload_dir(argv[6], bucket, path)
-	uploader.upload_file(argv[7], bucket, os.path.join(path, os.path.basename(argv[7])).lstrip('/'))
+	uploader.upload_dir(argv[1], bucket, path)
+	uploader.upload_file(argv[2], bucket, os.path.join(path, os.path.basename(argv[2])).lstrip('/'))
 
 	return 0
 

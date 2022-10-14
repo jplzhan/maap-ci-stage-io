@@ -162,6 +162,7 @@ def main(argc: int, argv: list) -> int:
 		'DAAC': [None, {}],
 		'MAAP': [MAAP.stage_in_maap, {}],
 		'Role': [None, {}],
+		'Local': [None, {}]
 	}
 
 	func = staging_map[staging_type][0]
@@ -216,6 +217,16 @@ def main(argc: int, argv: list) -> int:
 
 			params['role_arn'] = argv[2]
 			params['source_profile'] = argv[3]
+		elif staging_type == 'Local':
+			path = argv[2]
+			if os.path.exists(path):
+				inputs_dir = Util.create_inputs_dir()
+				dst = os.path.join(inputs_dir, os.path.basename(path))
+				shutil.move(path, dst)
+				return 0
+			else:
+				print('"{}" does not exist, now exiting...'.format(path))
+				return 1
 		else:
 			print('Unspported staging type: ' + staging_type)
 			return 1
