@@ -18,7 +18,7 @@ class AWS:
 			)
 			self.client = self.session.client('s3')
 		else:
-			shutil.copytree(configdir, '~/.aws')
+			shutil.copytree(configdir, os.path.join(os.path.expanduser('~'), '.aws'))
 			self.session = None
 			self.client = boto3.client('s3')
 
