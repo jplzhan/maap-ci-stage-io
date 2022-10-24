@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 
 class AWS:
 	def __init__(self, key: str, secret: str, token: str, region: str, configdir=None):
-		if configdir is None or not os.path.isdir(configdir):
+		if configdir is None:
 			self.session = boto3.Session(
 				aws_access_key_id=key,
 				aws_secret_access_key=secret,
@@ -18,7 +18,8 @@ class AWS:
 			)
 			self.client = self.session.client('s3')
 		else:
-			shutil.copytree(configdir, os.path.join(os.path.expanduser('~'), '.aws'))
+			if isinstance(configdir, str) and os.path.isdir(configdir):
+				shutil.copytree(configdir, os.path.join(os.path.expanduser('~'), '.aws'))
 			self.session = None
 			self.client = boto3.client('s3')
 
@@ -61,7 +62,7 @@ class AWS:
 
 
 def main(argc, argv):
-	expected_args = [5, 8]
+	expected_args = [4, 5, 8]
 	if argc not in expected_args:
 		print('Stage out script is being used incorrectly, {} arguments expected.'.format(expected_args))
 		return 1
@@ -79,6 +80,8 @@ def main(argc, argv):
 		uploader = AWS(key, secret, token, region)
 	elif argc == 5:
 		uploader = AWS('', '', '', '', configdir=argv[4])
+	elif argc == 4:
+		uploader = AWS('', '', '', '', configdir=False)
 
 	s3_url = argv[3]
 	parsed_url = urlparse(s3_url)
