@@ -61,7 +61,7 @@ class Util:
 		return False
 
 
-class MAAP:
+class StageIn:
 	@staticmethod
 	def stage_in_http(url: str) -> str:
 		"""Stage in a file from a HTTP/HTTPS URL.
@@ -96,7 +96,7 @@ class MAAP:
 		"""
 
 		# create inputs directory
-		inputs_dir = create_inputs_dir()
+		inputs_dir = Util.create_inputs_dir()
 
 		# download input file
 		p = urlparse(url)
@@ -130,7 +130,7 @@ class MAAP:
 		"""
 
 		# create inputs directory
-		inputs_dir = create_inputs_dir()
+		inputs_dir = Util.create_inputs_dir()
 
 		# instantiate maap object
 		maap = MAAP(maap_host=maap_host)
@@ -156,11 +156,11 @@ def main(argc: int, argv: list) -> int:
 	staging_type = argv[1]
 
 	staging_map = {
-		'HTTP': [MAAP.stage_in_http, {}],
-		'S3_unsigned': [MAAP.stage_in_s3, {'unsigned': True}],
-		'S3': [MAAP.stage_in_s3, {'unsigned': False}],
+		'HTTP': [StageIn.stage_in_http, {}],
+		'S3_unsigned': [StageIn.stage_in_s3, {'unsigned': True}],
+		'S3': [StageIn.stage_in_s3, {'unsigned': False}],
 		'DAAC': [None, {}],
-		'MAAP': [MAAP.stage_in_maap, {}],
+		'MAAP': [StageIn.stage_in_maap, {}],
 		'Role': [None, {}],
 		'Local': [None, {}]
 	}
