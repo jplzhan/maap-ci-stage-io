@@ -184,14 +184,15 @@ def main(argc: int, argv: list) -> int:
 			params['url'] = argv[2]
 
 			# Create the AWS credential file with the necessary secrets
-			with open('~/.aws/credentials', 'w') as f:
+			aws_prefix = os.path.join(os.path.expanduser('~'), '.aws')
+			with open(os.path.join(aws_prefix, 'credentials'), 'w') as f:
 				content = '[default]'
 				content += '\naws_access_key_id = ' + argv[3]
 				content += '\naws_secret_access_key = ' + argv[4]
 				content += '\naws_session_token = ' + argv[5]
 				f.write(content)
 			# Append the region to the AWS config
-			with open('~/.aws/config') as f:
+			with open(os.path.join(aws_prefix, 'config'), 'w') as f:
 				content = '[default]'
 				content += '\nregion = ' + argv[6]
 				f.write(content)
@@ -228,7 +229,7 @@ def main(argc: int, argv: list) -> int:
 				print('"{}" does not exist, now exiting...'.format(path))
 				return 1
 		else:
-			print('Unspported staging type: ' + staging_type)
+			print('Unsupported staging type: ' + staging_type)
 			return 1
 	except ArgcException as e:
 		print(e.message)
