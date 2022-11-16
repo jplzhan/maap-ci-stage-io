@@ -187,7 +187,7 @@ def main(argc: int, argv: list) -> int:
 			with open('~/.aws/credentials', 'w') as f:
 				content = '[default]'
 				content += '\naws_access_key_id = ' + argv[3]
-				content += '\nnaws_secret_access_key = ' + argv[4]
+				content += '\naws_secret_access_key = ' + argv[4]
 				content += '\naws_session_token = ' + argv[5]
 				f.write(content)
 			# Append the region to the AWS config
