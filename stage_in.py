@@ -183,16 +183,19 @@ def main(argc: int, argv: list) -> int:
 			# Submit the URL as a parameter to the S3 function
 			params['url'] = argv[2]
 
+			aws_dir = os.path.join(os.path.expanduser('~'), '.aws')
+			if not os.path.isdir(aws_dir):
+				os.makedirs(aws_dir)
+
 			# Create the AWS credential file with the necessary secrets
-			aws_prefix = os.path.join(os.path.expanduser('~'), '.aws')
-			with open(os.path.join(aws_prefix, 'credentials'), 'w') as f:
+			with open(os.path.join(aws_dir, 'credentials'), 'w') as f:
 				content = '[default]'
 				content += '\naws_access_key_id = ' + argv[3]
 				content += '\naws_secret_access_key = ' + argv[4]
 				content += '\naws_session_token = ' + argv[5]
 				f.write(content)
 			# Append the region to the AWS config
-			with open(os.path.join(aws_prefix, 'config'), 'w') as f:
+			with open(os.path.join(aws_dir, 'config'), 'w') as f:
 				content = '[default]'
 				content += '\nregion = ' + argv[6]
 				f.write(content)
