@@ -31,7 +31,7 @@ class ArgcException(Exception):
 
 class Util:
 	@staticmethod
-	def create_inputs_dir(inputs_dir: str = os.path.join(os.getcwd(), "inputs")) -> str:
+	def create_inputs_dir(inputs_dir: str = os.path.join(os.getcwd(), 'inputs')) -> str:
 		"""Create inputs directory."""
 
 		if not os.path.isdir(inputs_dir):
@@ -86,7 +86,7 @@ class StageIn:
 		return staged_file
 
 	@staticmethod
-	def stage_in_s3(url: str, unsigned: bool = False) -> str:
+	def stage_in_s3(url: str, cred: dict = None) -> str:
 		"""Stage in a file from an S3 URL.
 		Args:
 			url (str): S3 URL of input file
@@ -101,10 +101,10 @@ class StageIn:
 		# download input file
 		p = urlparse(url)
 		staged_file = os.path.join(inputs_dir, os.path.basename(p.path))
-		if unsigned:
-			s3 = boto3.client("s3", config=Config(signature_version=UNSIGNED))
+		if cred is None:
+			s3 = boto3.client('s3', config=Config(signature_version=UNSIGNED))
 		else:
-			s3 = boto3.client("s3")
+			s3 = boto3.client('s3', **cred)
 		s3.download_file(p.netloc, p.path[1:], staged_file)
 
 		return staged_file
@@ -116,7 +116,7 @@ class StageIn:
 		# TODO: remove these commented parameters if there is no need for them
 		# user_token: str,
 		# application_token: str,
-		maap_host: str = "api.ops.maap-project.org",
+		maap_host: str = 'api.ops.maap-project.org',
 	) -> str:
 		"""Stage in a MAAP dataset granule.
 		Args:
@@ -157,8 +157,8 @@ def main(argc: int, argv: list) -> int:
 
 	staging_map = {
 		'HTTP': [StageIn.stage_in_http, {}],
-		'S3_unsigned': [StageIn.stage_in_s3, {'unsigned': True}],
-		'S3': [StageIn.stage_in_s3, {'unsigned': False}],
+		'S3_unsigned': [StageIn.stage_in_s3, {'cred': None}],
+		'S3': [StageIn.stage_in_s3, {'cred': None}],
 		'DAAC': [None, {}],
 		'MAAP': [StageIn.stage_in_maap, {}],
 		'Role': [None, {}],
@@ -187,18 +187,12 @@ def main(argc: int, argv: list) -> int:
 			if not os.path.isdir(aws_dir):
 				os.makedirs(aws_dir)
 
-			# Create the AWS credential file with the necessary secrets
-			with open(os.path.join(aws_dir, 'credentials'), 'w') as f:
-				content = '[default]'
-				content += '\naws_access_key_id = ' + argv[3]
-				content += '\naws_secret_access_key = ' + argv[4]
-				content += '\naws_session_token = ' + argv[5]
-				f.write(content)
-			# Append the region to the AWS config
-			with open(os.path.join(aws_dir, 'config'), 'w') as f:
-				content = '[default]'
-				content += '\nregion = ' + argv[6]
-				f.write(content)
+			staging_map['S3'][1]['cred'] = {
+				'aws_access_key_id': argv[3],
+				'aws_secret_access_key': argv[4],
+				'aws_session_token': argv[5],
+				'region_name': argv[6],
+			}
 		elif staging_type == 'DAAC':
 			expected_argc = 3
 			if argc < expected_argc + 2:
