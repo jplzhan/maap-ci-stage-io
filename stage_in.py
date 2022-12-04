@@ -18,7 +18,7 @@ urllib3.disable_warnings()
 
 
 log_format = "[%(asctime)s: %(levelname)s/%(name)s/%(funcName)s] %(message)s"
-logging.basicConfig(stream=sys.stdout, format=log_format, level=logging.DEBUG)
+logging.basicConfig(stream=sys.stdout, format=log_format, level=logging.WARNING)
 logger = logging.getLogger('stage_in')
 
 
