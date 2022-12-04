@@ -18,7 +18,7 @@ urllib3.disable_warnings()
 
 
 log_format = "[%(asctime)s: %(levelname)s/%(name)s/%(funcName)s] %(message)s"
-logging.basicConfig(format=log_format, level=logging.WARNING)
+logging.basicConfig(stream=sys.stdout, format=log_format, level=logging.DEBUG)
 logger = logging.getLogger('stage_in')
 
 
@@ -168,7 +168,7 @@ def main(argc: int, argv: list) -> int:
 	# Verify the number of positional arguments is as expected
 	expected_argc = 2
 	if argc < expected_argc + 1:
-		raise ArgcException(staging_type, argc, expected_argc)
+		raise ArgcException('FATAL', argc, expected_argc)
 
 	# The first input should always be JSON inputs filename
 	inputs_json = argv[1]
@@ -187,7 +187,7 @@ def main(argc: int, argv: list) -> int:
 	input_path = inputs_json['input_path']
 	cache_only = inputs_json.get('cache_only', False)
 	cache_dir = inputs_json.get('cache_dir')
-	dest_dir = os.path.join(os.getcwd(), 'inputs') if cache_dir is not None else cache_dir['path']
+	dest_dir = os.path.join(os.getcwd(), 'inputs') if cache_dir is None else cache_dir['path']
 
 	# Use a dictionary to determine which execution branch to use
 	staging_map = {
@@ -247,7 +247,7 @@ def main(argc: int, argv: list) -> int:
 
 	# Loop over the list based parameters and merge them with the base credentials in params
 	for i, extra_params in enumerate(extra_param_list):
-		params['dest'] = os.path.join(dest_dir, i)
+		params['dest'] = os.path.join(dest_dir, str(i))
 		joined_params = Util.merge_dict(params, extra_params)
 		dl_path = func(**joined_params)
 		logger.info('Downloaded ({}): '.format(staging_type) + dl_path)
