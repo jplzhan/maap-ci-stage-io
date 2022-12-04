@@ -7,6 +7,7 @@ import requests
 import urllib3
 import shutil
 import logging
+import json
 import boto3
 from botocore import UNSIGNED
 from botocore.config import Config
@@ -25,18 +26,17 @@ class ArgcException(Exception):
 	"""Raised when the number of provided arguments is less than expected."""
 	def __init__(self, staging_type, received, expected):
 		self.expected = expected
-		self.message = '{t}: Not enough arguments (recieved {c}, expected {e})'
-		self.message = message.format(t=staging_type, c=(received-1), e=expected)
+		self.message = '{t}: Not enough arguments (received {c}, expected {e})'
+		self.message = self.message.format(t=staging_type, c=(received-1), e=expected)
 
 
 class Util:
 	@staticmethod
-	def create_inputs_dir(inputs_dir: str = os.path.join(os.getcwd(), 'inputs')) -> str:
-		"""Create inputs directory."""
-
-		if not os.path.isdir(inputs_dir):
-			os.makedirs(inputs_dir)
-		return inputs_dir
+	def create_dest(dest: str = os.path.join(os.getcwd(), 'inputs')) -> str:
+		"""Create the destination directory, if it does not already exist."""
+		if not os.path.isdir(dest):
+			os.makedirs(dest)
+		return dest
 
 	@staticmethod
 	def is_s3_url(url: str) -> bool:
@@ -60,10 +60,21 @@ class Util:
 			return True
 		return False
 
+	@staticmethod
+	def to_list(var) -> list:
+		"""If var is not a list, then places it in a list and returns."""
+		return var if isinstance(var, list) else [var]
+
+	@staticmethod
+	def merge_dict(dict1, dict2):
+		"""Merges two dictionaries and returns the copy, without modifying the originals."""
+		res = {**dict1, **dict2}
+		return res
+
 
 class StageIn:
 	@staticmethod
-	def stage_in_http(url: str) -> str:
+	def stage_in_http(url: str, dest: str) -> str:
 		"""Stage in a file from a HTTP/HTTPS URL.
 		Args:
 			url (str): HTTP/HTTPS URL of input file
@@ -72,7 +83,7 @@ class StageIn:
 		"""
 
 		# create inputs directory
-		inputs_dir = Util.create_inputs_dir()
+		inputs_dir = Util.create_dest(dest)
 
 		# download input file
 		p = urlparse(url)
@@ -86,7 +97,7 @@ class StageIn:
 		return staged_file
 
 	@staticmethod
-	def stage_in_s3(url: str, cred: dict = None) -> str:
+	def stage_in_s3(url: str, dest: str, cred: dict = None) -> str:
 		"""Stage in a file from an S3 URL.
 		Args:
 			url (str): S3 URL of input file
@@ -96,7 +107,7 @@ class StageIn:
 		"""
 
 		# create inputs directory
-		inputs_dir = Util.create_inputs_dir()
+		inputs_dir = Util.create_dest(dest)
 
 		# download input file
 		p = urlparse(url)
@@ -113,6 +124,7 @@ class StageIn:
 	def stage_in_maap(
 		collection_concept_id: str,
 		readable_granule_name: str,
+		dest: str,
 		# TODO: remove these commented parameters if there is no need for them
 		# user_token: str,
 		# application_token: str,
@@ -130,7 +142,7 @@ class StageIn:
 		"""
 
 		# create inputs directory
-		inputs_dir = Util.create_inputs_dir()
+		inputs_dir = Util.create_dest(dest)
 
 		# instantiate maap object
 		maap = MAAP(maap_host=maap_host)
@@ -153,87 +165,92 @@ class StageIn:
 
 
 def main(argc: int, argv: list) -> int:
-	staging_type = argv[1]
+	# Verify the number of positional arguments is as expected
+	expected_argc = 2
+	if argc < expected_argc + 1:
+		raise ArgcException(staging_type, argc, expected_argc)
 
-	staging_map = {
-		'HTTP': [StageIn.stage_in_http, {}],
-		'S3_unsigned': [StageIn.stage_in_s3, {'cred': None}],
-		'S3': [StageIn.stage_in_s3, {'cred': None}],
-		'DAAC': [None, {}],
-		'MAAP': [StageIn.stage_in_maap, {}],
-		'Role': [None, {}],
-		'Local': [None, {}]
-	}
+	# The first input should always be JSON inputs filename
+	inputs_json = argv[1]
+	# The second input should always be the deduced download type
+	staging_type = argv[2]
 
-	func = staging_map[staging_type][0]
-	params = staging_map[staging_type][1]
-
-	try:
-		if staging_type in ['HTTP', 'S3_unsigned']:
-			expected_argc = 1
-			if argc < expected_argc + 2:
-				raise ArgcException(staging_type, argc, expected_argc)
-
-			params['url'] = argv[2]
-		elif staging_type == 'S3':
-			expected_argc = 5
-			if argc < expected_argc + 2:
-				raise ArgcException(staging_type, argc, expected_argc)
-
-			# Submit the URL as a parameter to the S3 function
-			params['url'] = argv[2]
-
-			aws_dir = os.path.join(os.path.expanduser('~'), '.aws')
-			if not os.path.isdir(aws_dir):
-				os.makedirs(aws_dir)
-
-			staging_map['S3'][1]['cred'] = {
-				'aws_access_key_id': argv[3],
-				'aws_secret_access_key': argv[4],
-				'aws_session_token': argv[5],
-				'region_name': argv[6],
-			}
-		elif staging_type == 'DAAC':
-			expected_argc = 3
-			if argc < expected_argc + 2:
-				raise ArgcException(staging_type, argc, expected_argc)
-
-			params['url'] = argv[2]
-			params['username'] = argv[3]
-			params['password'] = argv[4]
-		elif staging_type == 'MAAP':
-			expected_argc = 2
-			if argc < expected_argc + 2:
-				raise ArgcException(staging_type, argc, expected_argc)
-
-			params['collection_concept_id'] = argv[2]
-			params['readable_granule_name'] = argv[3]
-		elif staging_type == 'Role':
-			expected_argc = 2
-			if argc < expected_argc + 2:
-				raise ArgcException(staging_type, argc, expected_argc)
-
-			params['role_arn'] = argv[2]
-			params['source_profile'] = argv[3]
-		elif staging_type == 'Local':
-			path = argv[2]
-			if os.path.exists(path):
-				inputs_dir = Util.create_inputs_dir()
-				dst = os.path.join(inputs_dir, os.path.basename(path))
-				shutil.move(path, dst)
-				return 0
-			else:
-				print('"{}" does not exist, now exiting...'.format(path))
-				return 1
-		else:
-			print('Unsupported staging type: ' + staging_type)
-			return 1
-	except ArgcException as e:
-		print(e.message)
+	# Convert inputs_json from a filename to a JSON dictionary represented in Python
+	if os.path.exists(inputs_json):
+		with open(inputs_json, 'r') as f:
+			inputs_json = json.load(f)
+	else:
+		logger.error('{} does not exist, resulting in a fatal error.'.format(inputs_json))
 		return 1
 
-	dl_path = func(**params)
-	print('Downloaded ({}): '.format(staging_type) + dl_path)
+	# Extract the input parameters and supplementary flags
+	input_path = inputs_json['input_path']
+	cache_only = inputs_json.get('cache_only', False)
+	cache_dir = inputs_json.get('cache_dir')
+	dest_dir = os.path.join(os.getcwd(), 'inputs') if cache_dir is not None else cache_dir['path']
+
+	# Use a dictionary to determine which execution branch to use
+	staging_map = {
+		'HTTP': StageIn.stage_in_http,
+		'S3_unsigned': StageIn.stage_in_s3,
+		'S3': StageIn.stage_in_s3,
+		'DAAC': None,
+		'MAAP': StageIn.stage_in_maap,
+		'Role': None,
+		'Local': None,
+	}
+
+	func = staging_map[staging_type]
+	params = {'dest': dest_dir}
+
+	# Based on the staging type, walk through the input path JSON and create a list of targets
+	extra_param_list = None
+	try:
+		if staging_type == 'HTTP':
+			extra_param_list = [{'url': url} for url in Util.to_list(input_path['url'])]
+		elif staging_type == 'S3_unsigned':
+			extra_param_list = [{'url': url} for url in Util.to_list(input_path['s3_url'])]
+			params['cred'] = None
+		elif staging_type == 'S3':
+			extra_param_list = [{'url': url} for url in Util.to_list(input_path.pop('s3_url'))]
+			params['cred'] = input_path
+		elif staging_type == 'DAAC':
+			params['url'] =  Util.to_list(input_path['url'])
+			params['username'] = input_path['username']
+			params['password'] = input_path['password']
+			extra_param_list = [{}]
+		elif staging_type == 'MAAP':
+			params['collection_concept_id'] = input_path['collection_concept_id']
+			params['readable_granule_name'] = input_path['readable_granule_name']
+			extra_param_list = [{}]
+		elif staging_type == 'Role':
+			params['role_arn'] = input_path['role_arn']
+			params['source_profile'] = input_path['source_profile']
+			extra_param_list = [{}]
+		elif staging_type == 'Local':
+			path_list = [x['path'] for x in Util.to_list(input_path['path'])]
+			for i, path in enumerate(path_list):
+				if os.path.exists(path):
+					inputs_dir = Util.create_dest(os.path.join(dest_dir, i))
+					path_dest = os.path.join(inputs_dir, os.path.basename(path))
+					shutil.move(path, path_dest)
+				else:
+					logger.error('"{}" does not exist, now exiting...'.format(path))
+					return 1
+			return 0
+		else:
+			logger.error('Unsupported staging type: ' + staging_type)
+			return 1
+	except ArgcException as e:
+		logger.error(e.message)
+		return 1
+
+	# Loop over the list based parameters and merge them with the base credentials in params
+	for i, extra_params in enumerate(extra_param_list):
+		params['dest'] = os.path.join(dest_dir, i)
+		joined_params = Util.merge_dict(params, extra_params)
+		dl_path = func(**joined_params)
+		logger.info('Downloaded ({}): '.format(staging_type) + dl_path)
 
 	return 0
 
