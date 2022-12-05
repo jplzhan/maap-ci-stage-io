@@ -74,7 +74,7 @@ class Util:
 
 class StageIn:
 	@staticmethod
-	def stage_in_http(url: str, dest: str) -> str:
+	def stage_in_http(url: str, dest: str, headers: str = None) -> str:
 		"""Stage in a file from a HTTP/HTTPS URL.
 		Args:
 			url (str): HTTP/HTTPS URL of input file
@@ -88,7 +88,7 @@ class StageIn:
 		# download input file
 		p = urlparse(url)
 		staged_file = os.path.join(inputs_dir, os.path.basename(p.path))
-		r = requests.get(url, stream=True, verify=False)
+		r = requests.get(url, headers=headers, stream=True, verify=False)
 		r.raise_for_status()
 		r.raw.decode_content = True
 		with open(staged_file, "wb") as f:
@@ -128,6 +128,7 @@ class StageIn:
 		# TODO: remove these commented parameters if there is no need for them
 		# user_token: str,
 		# application_token: str,
+		maap_pgt: str = None,
 		maap_host: str = 'api.ops.maap-project.org',
 	) -> str:
 		"""Stage in a MAAP dataset granule.
@@ -143,6 +144,10 @@ class StageIn:
 
 		# create inputs directory
 		inputs_dir = Util.create_dest(dest)
+
+		# Set the MAAP token if it is not None
+		if maap_pgt is not None:
+			os.environ['MAAP_PGT'] = maap_pgt
 
 		# instantiate maap object
 		maap = MAAP(maap_host=maap_host)
@@ -162,6 +167,31 @@ class StageIn:
 		granule.getData(destpath=inputs_dir)
 
 		return staged_file
+
+	@staticmethod
+	def stage_in_maap_http(
+		url: str,
+		dest: str,
+		maap_pgt: str = None,
+		maap_host: str = 'api.ops.maap-project.org',
+	) -> str:
+		"""Downloads an HTTP URL from MAAP.
+		
+		Calls StageIn.stage_in_http after initialization of the MAAP headers.
+		"""
+
+		# create inputs directory
+		inputs_dir = Util.create_dest(dest)
+
+		# Set the MAAP token if it is not None
+		if maap_pgt is not None:
+			os.environ['MAAP_PGT'] = maap_pgt
+
+		# instantiate maap object
+		maap = MAAP(maap_host=maap_host)
+		header = maap._get_api_header()
+
+		return StageIn.stage_in_http(url, headers=headers)
 
 
 def main(argc: int, argv: list) -> int:
@@ -215,18 +245,24 @@ def main(argc: int, argv: list) -> int:
 			extra_param_list = [{'url': url} for url in Util.to_list(input_path.pop('s3_url'))]
 			params['cred'] = input_path
 		elif staging_type == 'DAAC':
+			extra_param_list = [{}]
 			params['url'] =  Util.to_list(input_path['url'])
 			params['username'] = input_path['username']
 			params['password'] = input_path['password']
-			extra_param_list = [{}]
 		elif staging_type == 'MAAP':
-			params['collection_concept_id'] = input_path['collection_concept_id']
-			params['readable_granule_name'] = input_path['readable_granule_name']
-			extra_param_list = [{}]
+			extra_param_list = [{
+				'collection_concept_id': input_path['collection_concept_id'],
+				'readable_granule_name': input_path['readable_granule_name']
+			}]
+			params['maap_pgt'] = input_path['maap_pgt']
+		elif staging_type == 'MAAP_HTTP':
+			extra_param_list = [{'url': url} for url in Util.to_list(input_path['url'])]
+			params['maap_pgt'] = input_path['maap_pgt']
 		elif staging_type == 'Role':
-			params['role_arn'] = input_path['role_arn']
-			params['source_profile'] = input_path['source_profile']
-			extra_param_list = [{}]
+			extra_param_list = [{
+				'role_arn': input_path['role_arn'],
+				'source_profile': input_path['source_profile'],
+			}]
 		elif staging_type == 'Local':
 			path_list = [x['path'] for x in Util.to_list(input_path['path'])]
 			for i, path in enumerate(path_list):
