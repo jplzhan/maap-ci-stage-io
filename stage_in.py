@@ -247,10 +247,16 @@ def main(argc: int, argv: list) -> int:
 
 	# Loop over the list based parameters and merge them with the base credentials in params
 	for i, extra_params in enumerate(extra_param_list):
+		# Download the file to the initial destination directory
 		params['dest'] = os.path.join(dest_dir, str(i))
 		joined_params = Util.merge_dict(params, extra_params)
 		dl_path = func(**joined_params)
-		logger.info('Downloaded ({}): '.format(staging_type) + dl_path)
+
+		# Rename the file to preserve the list order in future containers
+		renamed = '{}_{}'.format(str(i), os.path.basename(dl_path))
+		renamed = os.path.join(os.path.dirname(dl_path), renamed)
+		os.rename(dl_path, renamed)
+		logger.info('Downloaded ({}): '.format(staging_type) + renamed)
 
 	return 0
 
