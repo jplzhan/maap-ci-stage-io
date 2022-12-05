@@ -226,6 +226,7 @@ def main(argc: int, argv: list) -> int:
 		'S3': StageIn.stage_in_s3,
 		'DAAC': None,
 		'MAAP': StageIn.stage_in_maap,
+		'MAAP_HTTP': StageIn.stage_in_maap_http,
 		'Role': None,
 		'Local': None,
 	}
