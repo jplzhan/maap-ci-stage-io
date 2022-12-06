@@ -7,12 +7,13 @@ import fcntl
 from re import search
 import pwd
 import inspect
-import argparse 
+import argparse
 from urllib.parse import urlparse
 import requests
 import urllib3
 import shutil
 import logging
+import json
 import boto3
 from botocore import UNSIGNED
 from botocore.config import Config
@@ -23,7 +24,7 @@ urllib3.disable_warnings()
 
 
 log_format = "[%(asctime)s: %(levelname)s/%(name)s/%(funcName)s] %(message)s"
-logging.basicConfig(format=log_format, level=logging.WARNING)
+logging.basicConfig(stream=sys.stdout, format=log_format, level=logging.INFO)
 logger = logging.getLogger('stage_in')
 
 
@@ -44,7 +45,7 @@ class CacheException(Exception):
 class Util:
 	@staticmethod
 	def create_dest_dir(inputs_dest_dir: str = os.path.join(os.getcwd(), 'inputs')) -> str:
-		"""Create inputs directory."""
+		"""Create inputs directory, if it does not already exist."""
 
 		if not os.path.isdir(inputs_dest_dir):
 			os.makedirs(inputs_dest_dir)
@@ -72,10 +73,21 @@ class Util:
 			return True
 		return False
 
+	@staticmethod
+	def to_list(var) -> list:
+		"""If var is not a list, then places it in a list and returns."""
+		return var if isinstance(var, list) else [var]
+
+	@staticmethod
+	def merge_dict(dict1, dict2):
+		"""Merges two dictionaries and returns the copy, without modifying the originals."""
+		res = {**dict1, **dict2}
+		return res
+
 
 class StageIn:
 	@staticmethod
-	def stage_in_http(url: str, get_url: dict = False, input_dest_file: str = None) -> str:
+	def stage_in_http(url: str, get_url: dict = False, input_dest_file: str = None, headers: str = None) -> str:
 		"""Stage in a file from a HTTP/HTTPS URL.
 		Args:
 			url (str): HTTP/HTTPS URL of input file
@@ -89,7 +101,7 @@ class StageIn:
 
 		# download input file
 
-		r = requests.get(url, stream=True, verify=False)
+		r = requests.get(url, headers=headers, stream=True, verify=False)
 		r.raise_for_status()
 		r.raw.decode_content = True
 		with open(input_dest_file, "wb") as f:
@@ -132,6 +144,7 @@ class StageIn:
                 # TODO: remove these commented parameters if there is no need for them
 		# user_token: str,
 		# application_token: str,
+		maap_pgt: str = None,
 		maap_host: str = 'api.ops.maap-project.org',
 	) -> str:
 		"""Stage in a MAAP dataset granule.
@@ -154,6 +167,10 @@ class StageIn:
 		if (get_url):
 			return False
 
+		# Set the MAAP token if it is not None
+		if maap_pgt is not None:
+			os.environ['MAAP_PGT'] = maap_pgt
+
 		# instantiate maap object
 		maap = MAAP(maap_host=maap_host)
 
@@ -169,9 +186,35 @@ class StageIn:
 
 		# download input file
 		input_dest_file = os.path.join(inputs_dest_dir, os.path.basename(p.path))
-		granule.getData(destpath=os.path.dirname(input_dest_file))
+		granule.getData(destpath=inputs_dest_dir)
 
 		return input_dest_file
+
+	@staticmethod
+	def stage_in_maap_http(
+		url: str,
+		dest: str,
+		maap_pgt: str = None,
+		maap_host: str = 'api.ops.maap-project.org',
+	) -> str:
+		"""Downloads an HTTP URL from MAAP.
+		
+		Calls StageIn.stage_in_http after initialization of the MAAP headers.
+		"""
+
+		# only interested in the potentially cacheable path name
+		if (get_url):
+			return url
+
+		# Set the MAAP token if it is not None
+		if maap_pgt is not None:
+			os.environ['MAAP_PGT'] = maap_pgt
+
+		# instantiate maap object
+		maap = MAAP(maap_host=maap_host)
+		header = maap._get_api_header()
+
+		return StageIn.stage_in_http(url, headers=headers)
 
 
 class Cache:
@@ -414,195 +457,215 @@ def main(argc: int, argv: list) -> int:
 
 	"""
 
+	# Verify the number of positional arguments is as expected
+	expected_argc = 2
+	if argc < expected_argc + 1:
+		raise ArgcException('FATAL', argc, expected_argc)
 
-	staging_type = argv[1]
+	# The first input should always be JSON inputs filename
+	inputs_json = argv[1]
+	# The second input should always be the deduced download type
+	staging_type = argv[2]
+
+	# Convert inputs_json from a filename to a JSON dictionary represented in Python
+	if os.path.exists(inputs_json):
+		with open(inputs_json, 'r') as f:
+			inputs_json = json.load(f)
+	else:
+		logger.error('{} does not exist, resulting in a fatal error.'.format(inputs_json))
+		return 1
+
+	# Extract the input parameters and supplementary flags
+	input_path = inputs_json['input_path']
+	cache_only = inputs_json.get('cache_only', False)
+	cache_dir = inputs_json.get('cache_dir')
+	dest_dir = os.path.join(os.getcwd(), 'inputs') if cache_dir is None else cache_dir['path']
+
+
+	# Use a dictionary to determine which execution branch to use
 	staging_map = {
-		'HTTP': [StageIn.stage_in_http, {}, None],
-		'S3_unsigned': [StageIn.stage_in_s3, {'cred': None}, Cache.s3_check_etag],
-		'S3': [StageIn.stage_in_s3, {'cred': None}, Cache.s3_check_etag],
-		'DAAC': [None, {}, None],
-		'MAAP': [StageIn.stage_in_maap, {}, None],
-		'Role': [None, {}, None],
-		'Local': [None, {}, None]
+		'HTTP': [StageIn.stage_in_http, None],
+		'S3_unsigned': [StageIn.stage_in_s3, Cache.s3_check_etag],
+		'S3': [StageIn.stage_in_s3, Cache.s3_check_etag],
+		'DAAC': [None, None],
+		'MAAP': [StageIn.stage_in_maap, None],
+		'MAAP_HTTP': [StageIn.stage_in_maap_http, None],
+		'Role': [None, None],
+		'Local': [None, None]
 	}
 
 	download_func = staging_map[staging_type][0]
-	params = staging_map[staging_type][1]
-	integrity_func = staging_map[staging_type][2]
+	integrity_func = staging_map[staging_type][1]
+	params = {'dest': dest_dir}	
+	
 
+	# Based on the staging type, walk through the input path JSON and create a list of targets
+	extra_param_list = None
 	try:
-		if staging_type in ['HTTP', 'S3_unsigned']:
-			expected_argc = 1
-			if argc < expected_argc + 2:
-				raise ArgcException(staging_type, argc, expected_argc)
-
-			params['url'] = argv[2]
+		if staging_type == 'HTTP':
+			extra_param_list = [{'url': url} for url in Util.to_list(input_path['url'])]
+		elif staging_type == 'S3_unsigned':
+			extra_param_list = [{'url': url} for url in Util.to_list(input_path['s3_url'])]
+			params['cred'] = None
 		elif staging_type == 'S3':
-			expected_argc = 5
-			if argc < expected_argc + 2:
-				raise ArgcException(staging_type, argc, expected_argc)
-
-			# Submit the URL as a parameter to the S3 function
-			params['url'] = argv[2]
-
-			aws_dir = os.path.join(os.path.expanduser('~'), '.aws')
-			if not os.path.isdir(aws_dir):
-				os.makedirs(aws_dir)
-
-			staging_map['S3'][1]['cred'] = {
-				'aws_access_key_id': argv[3],
-				'aws_secret_access_key': argv[4],
-				'aws_session_token': argv[5],
-				'region_name': argv[6],
-			}
+			extra_param_list = [{'url': url} for url in Util.to_list(input_path.pop('s3_url'))]
+			params['cred'] = input_path
 		elif staging_type == 'DAAC':
-			expected_argc = 3
-			if argc < expected_argc + 2:
-				raise ArgcException(staging_type, argc, expected_argc)
-
-			params['url'] = argv[2]
-			params['username'] = argv[3]
-			params['password'] = argv[4]
+			extra_param_list = [{}]
+			params['url'] =  Util.to_list(input_path['url'])
+			params['username'] = input_path['username']
+			params['password'] = input_path['password']
 		elif staging_type == 'MAAP':
-			expected_argc = 2
-			if argc < expected_argc + 2:
-				raise ArgcException(staging_type, argc, expected_argc)
-
-			params['collection_concept_id'] = argv[2]
-			params['readable_granule_name'] = argv[3]
+			extra_param_list = [{
+				'collection_concept_id': input_path['collection_concept_id'],
+				'readable_granule_name': input_path['readable_granule_name']
+			}]
+			params['maap_pgt'] = input_path['maap_pgt']
+		elif staging_type == 'MAAP_HTTP':
+			extra_param_list = [{'url': url} for url in Util.to_list(input_path['url'])]
+			params['maap_pgt'] = input_path['maap_pgt']
 		elif staging_type == 'Role':
-			expected_argc = 2
-			if argc < expected_argc + 2:
-				raise ArgcException(staging_type, argc, expected_argc)
-
-			params['role_arn'] = argv[2]
-			params['source_profile'] = argv[3]
+			extra_param_list = [{
+				'role_arn': input_path['role_arn'],
+				'source_profile': input_path['source_profile'],
+			}]
 		elif staging_type == 'Local':
-			path = argv[2]
-			if os.path.exists(path):
-				inputs_dest_dir = Util.create_dest_dir()
-				dst = os.path.join(inputs_dest_dir, os.path.basename(path))
-				shutil.move(path, dst)
-				return 0
-			else:
-				print('"{}" does not exist, now exiting...'.format(path))
-				return 1
+			path_list = [x['path'] for x in Util.to_list(input_path['path'])]
+			for i, path in enumerate(path_list):
+				if os.path.exists(path):
+					inputs_dir = Util.create_dest(os.path.join(dest_dir, i))
+					path_dest = os.path.join(inputs_dir, os.path.basename(path))
+					shutil.move(path, path_dest)
+				else:
+					logger.error('"{}" does not exist, now exiting...'.format(path))
+					return 1
+			return 0
 		else:
-			print('Unsupported staging type: ' + staging_type)
+			logger.error('Unsupported staging type: ' + staging_type)
 			return 1
 	except ArgcException as e:
-		print(e.message)
+		logger.error(e.message)
 		return 1
 
 	# create inputs directory
 	inputs_dest_dir = Util.create_dest_dir()
 
-	try: 
-		# set up the default file path for all downloads to be copied into
-                # this requires consistant behavior from all download functions
+	# Loop over the list based parameters and merge them with the base credentials in params
+	for i, extra_params in enumerate(extra_param_list):
+		"""
+		the determination of the destination has to be made later
+		as well as which functions to call.
+		# Download the file to the initial destination directory
+		params['dest'] = os.path.join(dest_dir, str(i))
+		joined_params = Util.merge_dict(params, extra_params)
+		dl_path = func(**joined_params)
+		""""
 
-		add_params = params.copy()
-		add_params['get_url'] = True
-		# only download functions that return a url will be considered for caching
-		if possibly_cacheable_url := download_func(**add_params):
-			p = urlparse(possibly_cacheable_url)
-			staged_file = os.path.join(inputs_dest_dir, os.path.basename(p.path))
+		try: 
+			# set up the default file path for all downloads to be copied into
+		        # this requires consistant behavior from all download functions
 
-			if (caching_directory != ''):
-
-        		# we have a local caching directory, try to get a unique_cacheable_file_path so the download object can be stored in the cache
+			# only download functions that return a url will be considered for caching
+			joined_params = Util.merge_dict( { 'get_url': True } , extra_params)
+			if possibly_cacheable_url := download_func(**joined_params):
+				p = urlparse(possibly_cacheable_url)
 				staged_file = os.path.join(inputs_dest_dir, os.path.basename(p.path))
 
-				# the download function has returned a possible name that we can cache. (not all download functions do)
-				# even if a download function supports cacheable paths, not all provided names may be cacheable
-				if unique_cacheable_file_path := Cache.cacheable_path(possibly_cacheable_url):
+				if (caching_directory != ''):
 
-					# we sucessfully created a unique name that can be cached.
-					if not (full_cache_file_path := Cache.cache_hit(caching_directory, unique_cacheable_file_path, args.restage_in, integrity_func, params)):
+				# we have a local caching directory, try to get a unique_cacheable_file_path so the download object can be stored in the cache
+					staged_file = os.path.join(inputs_dest_dir, os.path.basename(p.path))
 
-						# we have a unique_cacheable_file_path and a cache miss, so go get it into the cache
-						if not (full_cache_file_path := Cache.lock_cache(caching_directory, unique_cacheable_file_path)):
+					# the download function has returned a possible name that we can cache. (not all download functions do)
+					# even if a download function supports cacheable paths, not all provided names may be cacheable
+					if unique_cacheable_file_path := Cache.cacheable_path(possibly_cacheable_url):
 
-							# failed to lock the file for download - copy it to default input as a backup plan
-							logger.warning('Failed to lock file for download: '+ unique_cacheable_file_path)
-							if stage_file_to_input:
-								add_params.clear()
-								add_params = params.copy()
-								add_params['input_dest_file'] = staged_file
-								dl_path = download_func(**add_params)
-								dl_style='CacheFail:Download'
+						# we sucessfully created a unique name that can be cached.
+						if not (full_cache_file_path := Cache.cache_hit(caching_directory, unique_cacheable_file_path, args.restage_in, integrity_func, params)):
+
+							# we have a unique_cacheable_file_path and a cache miss, so go get it into the cache
+							if not (full_cache_file_path := Cache.lock_cache(caching_directory, unique_cacheable_file_path)):
+
+								# failed to lock the file for download - copy it to default input as a backup plan
+								logger.warning('Failed to lock file for download: '+ unique_cacheable_file_path)
+								if stage_file_to_input:
+									joined_params = Util.merge_dict( { 'input_dest_file': staged_file } , extra_params)
+									dl_path = download_func(**joined_params)
+									dl_style='CacheFail:Download'
+
+								else:
+									raise CacheException(staging_type, 'Failed to lock cache file : ' + unique_cacheable_file_path)
 
 							else:
-								raise CacheException(staging_type, 'Failed to lock cache file : ' + unique_cacheable_file_path)
+
+								# I have the lock for the file and I'm going to cache it.
+								# here is the point at which I could call out to a system specific caching function to put the file into a shared system area.
+								# for example - the NAS #CLOUD cache, but for now, we always cache to the users private area.
+								# remove any failed pieces for 
+								os.remove(full_cache_file_path+'.part') if os.path.exists(full_cache_file_path+'.part') else None
+
+								joined_params = Util.merge_dict( { 'input_dest_file': full_cache_file_path+'.part' } , extra_params)
+								dl_path = download_func(**joined_params)
+								dl_style='DownloadToCache'
+								os.rename(full_cache_file_path+'.part', full_cache_file_path)
+								os.remove(full_cache_file_path+'.lock')
+
+								# file is now in cache 
+								if stage_file_to_input:
+									shutil.copy(full_cache_file_path, staged_file)
+									dl_path = staged_file
+									dl_style=dl_style+':CopyToInput'
 
 						else:
+							# file was found in cache 
+							logger.debug('file found in cache: ' + full_cache_file_path)
+							dl_path=full_cache_file_path
+							dl_style='CacheHit'
 
-							# I have the lock for the file and I'm going to cache it.
-							# here is the point at which I could call out to a system specific caching function to put the file into a shared system area.
-							# for example - the NAS #CLOUD cache, but for now, we always cache to the users private area.
-							# remove any failed pieces for 
-							os.remove(full_cache_file_path+'.part') if os.path.exists(full_cache_file_path+'.part') else None
-
-							add_params.clear()
-							add_params = params.copy()
-							add_params['input_dest_file'] = full_cache_file_path+'.part'
-							dl_path = download_func(**add_params)
-							dl_style='DownloadToCache'
-							os.rename(full_cache_file_path+'.part', full_cache_file_path)
-							os.remove(full_cache_file_path+'.lock')
-
-							# file is now in cache 
 							if stage_file_to_input:
 								shutil.copy(full_cache_file_path, staged_file)
 								dl_path = staged_file
 								dl_style=dl_style+':CopyToInput'
-
 					else:
-						# file was found in cache 
-						logger.debug('file found in cache: ' + full_cache_file_path)
-						dl_path=full_cache_file_path
-						dl_style='CacheHit'
-
+						# can't produce a unique_cacheable_file_path 
 						if stage_file_to_input:
-							shutil.copy(full_cache_file_path, staged_file)
-							dl_path = staged_file
-							dl_style=dl_style+':CopyToInput'
+							joined_params = Util.merge_dict( { 'input_dest_file': staged_file } , extra_params)
+							dl_path = download_func(**joined_params)
+							dl_style='DownloadedToInput'
+
 				else:
-					# can't produce a unique_cacheable_file_path 
+					# no caching directory
 					if stage_file_to_input:
-						add_params.clear()
-						add_params = params.copy()
-						add_params['input_dest_file'] = staged_file
-						dl_path = download_func(**add_params)
+						joined_params = Util.merge_dict( { 'input_dest_file': staged_file } , extra_params)
+						dl_path = download_func(**joined_params)
 						dl_style='DownloadedToInput'
-
 			else:
-				# no caching directory
-				if stage_file_to_input:
-					add_params.clear()
-					add_params = params.copy()
-					add_params['input_dest_file'] = staged_file
-					dl_path = download_func(**add_params)
-					dl_style='DownloadedToInput'
-		else:
-			# The only non null function at this point is for maap
-			# because I haven't implemented the Stage.maap for caching yet
-			add_params.clear()
-			add_params = params.copy()
-			add_params['input_dest_file'] = staged_file
-			dl_path = download_func(**add_params)
-			dl_style='DownloadedToInput'
+				# The only non null function at this point is for maap
+				# because I haven't implemented the Stage.maap for caching yet
+				joined_params = Util.merge_dict( { 'input_dest_file': staged_file } , extra_params)
+				dl_path = download_func(**joined_params)
+				dl_style='DownloadedToInput'
 
-			# if I can get confirm maap behavior then this can be uncommented...
-			## Currently, only download functions that don't to anything will land here
-			#print('No download function for ({}): '.format(staging_type))
-			#return 0
-				
-	except CacheException as e:
-		print(e.message)
-		return 1
+				# if I can get confirmed maap behavior then this can be uncommented...
+				## Currently, only download functions that don't to anything will land here
+				#print('No download function for ({}): '.format(staging_type))
+				#return 0
+					
+		except CacheException as e:
+			print(e.message)
+			return 1
 
-	print('({}) {}: '.format(staging_type, dl_style) + dl_path)
+		""" 
+		Dont understand why this - need to understand to merge
+		# Rename the file to preserve the list order in future containers
+		renamed = '{}_{}'.format(str(i), os.path.basename(dl_path))
+		renamed = os.path.join(os.path.dirname(dl_path), renamed)
+		os.rename(dl_path, renamed)
+		logger.info('Downloaded ({}): '.format(staging_type) + renamed)
+
+		logger.info('({}) {}: '.format(staging_type, dl_style) + dl_path)
+		"""
+
 
 	return 0
 
