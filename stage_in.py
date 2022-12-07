@@ -149,6 +149,7 @@ class StageIn:
 		# Set the MAAP token if it is not None
 		if maap_pgt is not None:
 			os.environ['MAAP_PGT'] = maap_pgt
+			os.environ['MAAP_CONF'] = '/home/jovyan'
 
 		# instantiate maap object
 		maap = MAAP(maap_host=maap_host)
@@ -188,6 +189,7 @@ class StageIn:
 		# Set the MAAP token if it is not None
 		if maap_pgt is not None:
 			os.environ['MAAP_PGT'] = maap_pgt
+			os.environ['MAAP_CONF'] = '/home/jovyan'
 
 		# instantiate maap object
 		maap = MAAP(maap_host=maap_host)
@@ -198,7 +200,7 @@ class StageIn:
 		r._downloadname = filename
 
 		return r.getData(inputs_dir)
-		
+
 
 def main(argc: int, argv: list) -> int:
 	# Verify the number of positional arguments is as expected
