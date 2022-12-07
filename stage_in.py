@@ -182,7 +182,7 @@ class StageIn:
 		Calls StageIn.stage_in_http after initialization of the MAAP headers.
 		"""
 
-        # create inputs directory
+		# create inputs directory
 		inputs_dir = Util.create_dest(dest)
 		filename = os.path.basename(urlparse(url).path)
 
