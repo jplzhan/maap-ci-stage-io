@@ -12,6 +12,7 @@ import boto3
 from botocore import UNSIGNED
 from botocore.config import Config
 from maap.maap import MAAP
+from maap.Result import Result
 
 
 urllib3.disable_warnings()
@@ -180,8 +181,9 @@ class StageIn:
 		Calls StageIn.stage_in_http after initialization of the MAAP headers.
 		"""
 
-		# create inputs directory
+        # create inputs directory
 		inputs_dir = Util.create_dest(dest)
+		filename = os.path.basename(urlparse(url).path)
 
 		# Set the MAAP token if it is not None
 		if maap_pgt is not None:
@@ -189,10 +191,14 @@ class StageIn:
 
 		# instantiate maap object
 		maap = MAAP(maap_host=maap_host)
-		header = maap._get_api_header()
+		r = Result()
+		r._cmrFileUrl = f'https://{maap_host}/api/cmr/granules'
+		r._apiHeader = maap._get_api_header()
+		r._location = url
+		r._downloadname = filename
 
-		return StageIn.stage_in_http(url, headers=headers)
-
+		return r.getData(inputs_dir)
+		
 
 def main(argc: int, argv: list) -> int:
 	# Verify the number of positional arguments is as expected
