@@ -1,0 +1,11 @@
+{
+  "cache_only": false,
+  "input_path": {
+    "s3_url": [ "s3://chaos42/chaos42.txt", "s3://chaos42/chaos42.txt" ],
+    "aws_access_key_id": "XXXXXXXXXXXXXXXXXXXX",
+    "aws_secret_access_key": "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXu"
+  }
+}
+
+
+

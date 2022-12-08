@@ -17,7 +17,8 @@ import json
 import boto3
 from botocore import UNSIGNED
 from botocore.config import Config
-#from maap.maap import MAAP
+from maap.maap import MAAP
+from maap.Result import Result
 
 
 urllib3.disable_warnings()
@@ -79,9 +80,9 @@ class Util:
 		return var if isinstance(var, list) else [var]
 
 	@staticmethod
-	def merge_dict(dict1, dict2, dict3):
+	def merge_dict(dict1, dict2):
 		"""Merges two dictionaries and returns the copy, without modifying the originals."""
-		res = {**dict1, **dict2, **dict3}
+		res = {**dict1, **dict2}
 		return res
 
 	@staticmethod
@@ -94,17 +95,13 @@ class Util:
 
 class StageIn:
 	@staticmethod
-	def stage_in_http(url: str, get_url: dict = False, input_dest_file: str = None, headers: str = None) -> str:
+	def stage_in_http(url: str, input_dest_file: str = None, headers: str = None) -> str:
 		"""Stage in a file from a HTTP/HTTPS URL.
 		Args:
 			url (str): HTTP/HTTPS URL of input file
 		Returns:
 			str: relative path to the staged-in input file
 		"""
-
-		# only interested in the potentially cacheable path name
-		if (get_url):
-			return url
 
 		# download input file
 
@@ -117,7 +114,7 @@ class StageIn:
 		return input_dest_file
 
 	@staticmethod
-	def stage_in_s3(url: str, get_url: dict = False, input_dest_file: str = None, cred: dict = None) -> str:
+	def stage_in_s3(url: str, input_dest_file: str = None, cred: dict = None) -> str:
 		"""Stage in a file from an S3 URL.
 		Args:
 			url (str): S3 URL of input file
@@ -125,10 +122,6 @@ class StageIn:
 		Returns:
 			str: relative path to the staged-in input file
 		"""
-
-		# only interested in the potentially cacheable path name
-		if (get_url):
-			return url
 
 		p = urlparse(url)
 
@@ -146,7 +139,6 @@ class StageIn:
 	def stage_in_maap(
 		collection_concept_id: str,
 		readable_granule_name: str,
-		get_url: dict = False,
 		input_dest_file: str = None, 
                 # TODO: remove these commented parameters if there is no need for them
 		# user_token: str,
@@ -165,18 +157,10 @@ class StageIn:
 			str: relative path to the staged-in input file
 		"""
                 
-		# RBC. I'm set up to do caching for maap granules. BUT, I don't have an understanding of the maap.searchGranule or the maap.getDownloadUrl code.
-		# in particular, do these calls have side effects or overheads where we want to avoid calling them more than once. What I want is a cacheable path
-		# name that I derive from the url - and it looks like I can get that right here. But I may need to call searchGranule before getDownloadUrl
-		# and only want to call searchGranule once, requiring some static data....
-		# but I just return a fail here as uncacheable for now....
-
-		if (get_url):
-			return False
-
 		# Set the MAAP token if it is not None
 		if maap_pgt is not None:
 			os.environ['MAAP_PGT'] = maap_pgt
+			os.environ['MAAP_CONF'] = '/home/jovyan'
 
 		# instantiate maap object
 		maap = MAAP(maap_host=maap_host)
@@ -209,19 +193,24 @@ class StageIn:
 		Calls StageIn.stage_in_http after initialization of the MAAP headers.
 		"""
 
-		# only interested in the potentially cacheable path name
-		if (get_url):
-			return url
+		# create inputs directory
+		inputs_dir = Util.create_dest(dest)
+		filename = os.path.basename(urlparse(url).path)
 
 		# Set the MAAP token if it is not None
 		if maap_pgt is not None:
 			os.environ['MAAP_PGT'] = maap_pgt
+			os.environ['MAAP_CONF'] = '/home/jovyan'
 
 		# instantiate maap object
 		maap = MAAP(maap_host=maap_host)
-		header = maap._get_api_header()
+		r = Result()
+		r._cmrFileUrl = f'https://{maap_host}/api/cmr/granules'
+		r._apiHeader = maap._get_api_header()
+		r._location = url
+		r._downloadname = filename
 
-		return StageIn.stage_in_http(url, headers=headers)
+		return r.getData(inputs_dir)
 
 
 class Cache:
@@ -312,7 +301,6 @@ class Cache:
 		return False
 
 	@staticmethod
-	#def cache_hit(cache_dir: str, unique_cacheable_file_path: str) -> str:
 	def cache_hit(cache_dir: str, unique_cacheable_file_path: str, restage_in: bool, integrity_func, params: dict) -> str:
 
 		"""
@@ -322,6 +310,7 @@ class Cache:
 
 		user_name=pwd.getpwuid(os.getuid())[0]
 
+		# look for path in the users private cache
 		if os.path.exists(full_path:=os.path.join(cache_dir, user_name, 'S3cache', unique_cacheable_file_path)):
 			if restage_in:
 				logger.warning('removing file from cache and restaging in: '+ full_path)
@@ -337,6 +326,7 @@ class Cache:
 				os.remove(full_path)
 				return ''
 
+		# look for path in the systems public cache
 		if os.path.exists(full_path:=os.path.join(cache_dir, 'S3cache', unique_cacheable_file_path)):
 			if restage_in:
 				logger.warning('ignoring file in system cache - can not restage: '+ full_path)
@@ -356,7 +346,7 @@ class Cache:
 		return ''
 
 	@staticmethod
-	def s3_check_etag(url: str, get_url: dict = False, input_dest_file: str = None, cred: dict = None) -> str:
+	def s3_check_etag(url: str, input_dest_file: str = None, cred: dict = None) -> str:
 		""" Check to see that a cached file matches its web based ETAG
 		Args:
 			url (str): S3 URL of input file
@@ -384,8 +374,41 @@ class Cache:
 def main(argc: int, argv: list) -> int:
 
 	"""
+	call: stage_in.py <input.json> <staging_type> [options]
+			staging_type: HTTP | S3_unsigned | S3 | DAAC | MAAP | MAAP_HTTP | Role | Local
+
+	stage_in.py is called in either a one or two pass mode. Because of various failures that can happen, we like to be resiliant to fails.
+
+	One pass mode:
+		stage_in.py is only called one time in the main workflow.cwl. If a cache is configured, it will be checked for the cached object. 
+		If found, will be copied to /input. If not found, and has a named cacheable reference, it will be copied into the cache, and then into /input. 
+		If it can't be cached, it will be directly copied into /input.
+
+	Two pass mode:
+		stage_in.py is called twice, once in prime cache mode where just the stage_in.cwl section is run first and then entire workflow.cwl
+		is run sometime in the future. On a busy system, these two passes may occur some time apart since they are separate jobs. 
+
+		Pass one of two pass:
+			Same behavior as the single pass of One pass mode above, except that only cacheable objects are copied into cache and not into /input 
+		Pass two of two pass:
+			Same behavior as the single pass of One pass mode above. 
+
+		Note: that workflow.cwl may possibly be constructed so that cwl-runner could run a stage_in step with --single-step or --target. This not 
+		needed at this point because a seporate cache_workflow.cwl is being created based on the stage_in steps in workflow.cwl. This note just 
+		to keep that thought around for future investigations with the capabilities of cwl.
+
+
+	To facilitate caching, the main section of stage_in.py is broken into three steps:
+
+		Step 1: If possible, convert the staging request arguments into a path, an MD5 hash handle, or other unique mapping that can 
+			be used to locate the object that is cached. Ideally, this mapping is reversible, that is we can take this string and find its 
+			internet location or its cache location. But at a minimum, the mapping from request name (e.g. url or MD5) to cache name is unique.
+		Step 2: If not cached, copy the file into the cache, if caching enabled
+		Step 3: Copy into main workflow from cache if cached or from remote if not
+
 		
-	add arguments to implement the transparent caching functionality.
+	 A limited number of command line arguments is supported mainly for debuging and not used during normal processing
+	 [only the -r option currently functions]
 
 	-s only prime cache. items will only be copied int the local cache is possible. Only used for pre-staging files
 
@@ -396,9 +419,8 @@ def main(argc: int, argv: list) -> int:
 	-r remove cached item from the cache and download again
 	-d turn on debugging messages
 
-	After processing the extra arguments, argc and argv are returned to how they would have been set in previous releases
-	of stage_in.py to eliminate changes in how the arguments are processed below.  argparse is good enough to even handle 
-	appended known args...
+	After processing the command line arguments, argc and argv are returned to how they are run during normal processing
+	of stage_in.py argparse is good enough to even handle appended known args...
 
 	The three different processing scenarios should be handled correctly:
 			1) two pass processing: stage_in runs to prime the cache by explicitly calling stage_in just to prime the cache
@@ -426,8 +448,8 @@ def main(argc: int, argv: list) -> int:
 	argv=nargv
 	argc=nargc
 
-	# I'd like to keep the argument processing section in place for now. I think we want to retain the -r for flush/repolulate the cache. 
-	# I might also like to be able to pass in enough information to perform basic testing - but may can just create some json instead.
+	# I'd like to keep the argument processing section in place for now. It makes for much easier testing than editing json input files. 
+	# We may also want to retain the -r for flushing/repoplulate the cache. We can revisit this later
 
 	#caching_directory = args.caching_directory
 	#stage_file_to_input = not args.only_prime_cache
@@ -437,39 +459,6 @@ def main(argc: int, argv: list) -> int:
 	if args.debug:
 		logger.setLevel(10)
 
-
-	"""
-	RBC - stage_in.py is called in either a one or two pass mode. Because of various failures that can happen, we like to be resiliant to fails.
-	One pass mode:
-		stage_in.py is only called one time in the main workflow.cwl. If a cache is configured, it will be checked for the cached object. 
-		If found, will be copied to /input. If not found, and has a named cacheable reference, it will be copied into the cache, and then into /input. 
-		If it can't be cached, it will be directly copied into /input.
-
-	Two pass mode:
-		stage_in.py is called twice, once in prime cache mode where just the stage_in.cwl section is run first and then entire workflow.cwl
-		is run sometime in the future. On a busy system, these two passes may occur some time apart since they are separate jobs. 
-
-		Pass one of two pass:
-			Same behavior as the single pass of One pass mode above, except that only cacheable objects are copied into cache and not into /input 
-		Pass two of two pass:
-			Same behavior as the single pass of One pass mode above. 
-
-		Note: that workflow.cwl may possibly be constructed so that cwl-runner could run a stage_in step with --single-step or --target. This not 
-		needed at this point because a seporate cache_workflow.cwl is being created based on the stage_in steps in workflow.cwl. This note just 
-		to keep that thought around for future investigations with the capabilities of cwl.
-
-
-	To facilitate caching, we have to determine whether an objects reference (e.g. url) is cacheable. To do this, main section of stage_in.py is broken 
-	into two steps:
-
-		Step 1: If possible, convert the staging request arguments into a path, an MD5 hash handle, or other unique mapping that can 
-			be used to locate the object that is cached. Ideally, this mapping is reversible, that is we can take this string and find its 
-			internet location or its cache location. But at a minimum, the mapping from request name (e.g. url or MD5) to cache name is unique.
-			This requires a call the staging functions to get the url, since the StageIn.stage_in_maap requires some calls to resolve the url.
-		Step 2: If not cached, copy the file into the cache, if caching enabled
-		Step 3: Copy into main workflow from cache if cached or from remote if not
-
-	"""
 
 	# Verify the number of positional arguments is as expected
 	expected_argc = 2
@@ -493,9 +482,14 @@ def main(argc: int, argv: list) -> int:
 	input_path = inputs_json['input_path']
 	cache_only = inputs_json.get('cache_only', False)
 	stage_file_to_input = not cache_only
-	cache_dir = inputs_json.get('cache_dir')
+	cache_dict = inputs_json.get('cache_dir')
 
-	dest_dir = os.path.join(os.getcwd(), 'inputs') if cache_dir is None else cache_dir['path']
+	if (cache_dict):
+		cache_dir = cache_dict['path']
+	else:
+		cache_dir = ''
+
+	dest_dir = os.path.join(os.getcwd(), 'inputs') if cache_dir == '' else cache_dict['path']
 
 	# Use a dictionary to determine which execution branch to use
 	staging_map = {
@@ -511,14 +505,14 @@ def main(argc: int, argv: list) -> int:
 
 	download_func = staging_map[staging_type][0]
 	integrity_func = staging_map[staging_type][1]
-	# we want to set the input_dest_dir below
-	#params = {'dest': dest_dir}	
-	
+	params = {}
 
 	# Based on the staging type, walk through the input path JSON and create a list of targets
 	extra_param_list = None
 	try:
 		if staging_type == 'HTTP':
+			extra_param_list = [{'url': url} for url in Util.to_list(input_path['url'])]
+		elif staging_type == 'S3_unsigned':
 			extra_param_list = [{'url': url} for url in Util.to_list(input_path['s3_url'])]
 			params['cred'] = None
 		elif staging_type == 'S3':
@@ -566,113 +560,81 @@ def main(argc: int, argv: list) -> int:
 
 	# Loop over the list based parameters and merge them with the base credentials in params
 	for i, extra_params in enumerate(extra_param_list):
-		"""
-		the determination of the destination has to be made later
-		as well as which functions to call.
-		# Download the file to the initial destination directory
-		params['dest'] = os.path.join(dest_dir, str(i))
+
 		joined_params = Util.merge_dict(params, extra_params)
-		dl_path = func(**joined_params)
-		"""
 
 		try: 
-			# set up the default file path for all downloads to be copied into
-		        # this requires consistant behavior from all download functions
 
-			# only download functions that return a url will be considered for caching
-			joined_params = Util.merge_dict( { 'get_url': True } , params, extra_params)
-			if possibly_cacheable_url := download_func(**joined_params):
-				p = urlparse(possibly_cacheable_url)
-				staged_file = os.path.join(inputs_dest_dir, os.path.basename(p.path))
+			# break out the path from the url
+			possibly_cacheable_url = joined_params['url']
+			p = urlparse(possibly_cacheable_url)
+			staged_file = os.path.join(inputs_dest_dir, os.path.basename(p.path))
 
-				if (cache_dir != ''):
+			# check to see that we have a cache dir and a path that we can cache to
+			if (cache_dir == '' or (not (unique_cacheable_file_path := Cache.cacheable_path(possibly_cacheable_url)))):
+				# no caching directory or not a cacheable path
+				if stage_file_to_input:
+					dl_style='DownloadedToInput'
+					joined_params['input_dest_file'] = staged_file
+					dl_path = download_func(**joined_params)
+					Util.rename(i, dl_path)
+					logger.info('({}) {}: '.format(staging_type, dl_style) + dl_path)
+					continue
 
-				# we have a local caching directory, try to get a unique_cacheable_file_path so the download object can be stored in the cache
-					staged_file = os.path.join(inputs_dest_dir, os.path.basename(p.path))
+			# we are caching and have a unique_cacheable_file_path so the download object can be stored in the cache
+			if not (full_cache_file_path := Cache.cache_hit(cache_dir, unique_cacheable_file_path, args.restage_in, integrity_func, joined_params)):
 
-					# the download function has returned a possible name that we can cache. (not all download functions do)
-					# even if a download function supports cacheable paths, not all provided names may be cacheable
-					if unique_cacheable_file_path := Cache.cacheable_path(possibly_cacheable_url):
+				# we have cache miss, so go get it into the cache
+				if not (full_cache_file_path := Cache.lock_cache(cache_dir, unique_cacheable_file_path)):
 
-						# we sucessfully created a unique name that can be cached.
-						if not (full_cache_file_path := Cache.cache_hit(cache_dir, unique_cacheable_file_path, args.restage_in, integrity_func, joined_params)):
+					# failed to lock the cache for file download - copy it to default input as a backup plan
+					logger.warning('Failed to lock file for download: '+ unique_cacheable_file_path)
+					if stage_file_to_input:
+						dl_style='CacheFail:Download'
+						joined_params['input_dest_file'] = staged_file
+						dl_path = download_func(**joined_params)
+						Util.rename(i, dl_path)
+						logger.info('({}) {}: '.format(staging_type, dl_style) + dl_path)
 
-							# we have a unique_cacheable_file_path and a cache miss, so go get it into the cache
-							if not (full_cache_file_path := Cache.lock_cache(cache_dir, unique_cacheable_file_path)):
-
-								# failed to lock the cache for file download - copy it to default input as a backup plan
-								logger.warning('Failed to lock file for download: '+ unique_cacheable_file_path)
-								if stage_file_to_input:
-									joined_params = Util.merge_dict( { 'input_dest_file': staged_file } , params, extra_params)
-									dl_path = download_func(**joined_params)
-									dl_style='CacheFail:Download'
-									Util.rename(i, dl_path)
-
-								else:
-									raise CacheException(staging_type, 'Failed to lock cache file : ' + unique_cacheable_file_path)
-
-							else:
-
-								# I have the lock for the file and I'm going to cache it.
-								# here is the point at which I could call out to a system specific caching function to put the file into a shared system area.
-								# for example - the NAS #CLOUD cache, but for now, we always cache to the users private area. Some agreement on cache path
-								# naming between MAAP and NAS #cloud caching is important so that MAAP can use NAS WebCache to reduce egress.
-
-								# remove any failed pieces from previous tries
-								os.remove(full_cache_file_path+'.part') if os.path.exists(full_cache_file_path+'.part') else None
-
-								joined_params = Util.merge_dict( { 'input_dest_file': full_cache_file_path+'.part' } , params, extra_params)
-								dl_path = download_func(**joined_params)
-								dl_style='DownloadToCache'
-								os.rename(full_cache_file_path+'.part', full_cache_file_path)
-								os.remove(full_cache_file_path+'.lock')
-
-								# file is now in cache 
-								if stage_file_to_input:
-									shutil.copy(full_cache_file_path, staged_file)
-									dl_path = staged_file
-									dl_style=dl_style+':CopyToInput'
-									Util.rename(i, dl_path)
-
-						else:
-							# file was found in cache 
-							logger.debug('file found in cache: ' + full_cache_file_path)
-							dl_path=full_cache_file_path
-							dl_style='CacheHit'
-
-							if stage_file_to_input:
-								shutil.copy(full_cache_file_path, staged_file)
-								dl_path = staged_file
-								dl_style=dl_style+':CopyToInput'
-								Util.rename(i, dl_path)
 					else:
-						# can't produce a unique_cacheable_file_path, so skip caching
-						if stage_file_to_input:
-							joined_params = Util.merge_dict( { 'input_dest_file': staged_file } , params, extra_params)
-							dl_path = download_func(**joined_params)
-							dl_style='DownloadedToInput'
-							Util.rename(i, dl_path)
+						logger.warning(staging_type, 'Failed to lock cache file : ' + cache_dir + '/' + unique_cacheable_file_path)
+					continue
 
 				else:
-					# no caching directory
-					if stage_file_to_input:
-						joined_params = Util.merge_dict( { 'input_dest_file': staged_file } , params, extra_params)
-						dl_path = download_func(**joined_params)
-						dl_style='DownloadedToInput'
-						Util.rename(i, dl_path)
-			else:
-				# The only non null function at this point that should get here is StageIn.stage_in_maap
-				# because I haven't implemented the necessary steps for caching yet
-				joined_params = Util.merge_dict( { 'input_dest_file': staged_file } , params, extra_params)
-				dl_path = download_func(**joined_params)
-				dl_style='DownloadedToInput'
-				Util.rename(i, dl_path)
 
-				# if I can get confirmed maap behavior then this can be uncommented...
-				## Currently, only download functions that don't to anything will land here
-				#logger.info('No download function for ({}): '.format(staging_type))
-				#return 0
-					
+					# I have the lock for the file and I'm going to cache it.
+					# here is the point at which I could call out to a system specific caching function to put the file into a shared system area.
+					# for example - the NAS #CLOUD cache, but for now, we always cache to the users private area. Some agreement on cache path
+					# naming between MAAP and NAS #cloud caching is important so that MAAP can use NAS WebCache to reduce egress.
+
+					# remove any failed pieces from previous tries
+					os.remove(full_cache_file_path+'.part') if os.path.exists(full_cache_file_path+'.part') else None
+
+					dl_style='DownloadToCache'
+					joined_params['input_dest_file'] = full_cache_file_path+'.part'
+					dl_path = download_func(**joined_params)
+					os.rename(full_cache_file_path+'.part', full_cache_file_path)
+					os.remove(full_cache_file_path+'.lock')
+
+					# file is now in cache 
+					if stage_file_to_input:
+						shutil.copy(full_cache_file_path, staged_file)
+						dl_style=dl_style+':CopyToInput'
+						dl_path = staged_file
+						Util.rename(i, dl_path)
+
+			else:
+				# file was found in cache 
+				logger.debug('file found in cache: ' + full_cache_file_path)
+				dl_style='CacheHit'
+				dl_path=full_cache_file_path
+
+				if stage_file_to_input:
+					shutil.copy(full_cache_file_path, staged_file)
+					dl_style=dl_style+':CopyToInput'
+					dl_path = staged_file
+					Util.rename(i, dl_path)
+
 		except CacheException as e:
 			print(e.message)
 			return 1

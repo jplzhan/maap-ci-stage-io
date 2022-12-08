@@ -1,0 +1,18 @@
+{
+  "cache_dir": {
+    "basename": "test_cache_dir",
+    "class": "Directory",
+    "dirname": "/var/lib/cwl/stga9dc22b2-5c26-4208-b5bb-b7bfcf9fd108",
+    "location": "file:///data/home/hysdsops/zhan/artifact-deposit-repo/jplzhan/gedi-subset/main/test_cache_dir",
+    "path": "/home7/rciotti/maap/git/maap-ci-stage-io/cache"
+  },
+  "cache_only": false,
+  "input_path": {
+    "s3_url": [ "s3://chaos42/chaos42.txt?x", "s3://chaos42/chaos42.txt" ],
+    "aws_access_key_id": "XXXXXXXXXXXXXXXXXXXX",
+    "aws_secret_access_key": "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXu"
+  }
+}
+
+
+

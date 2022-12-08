@@ -1,0 +1,13 @@
+{
+  "cache_dir": {
+    "basename": "test_cache_dir",
+    "class": "Directory",
+    "dirname": "/var/lib/cwl/stga9dc22b2-5c26-4208-b5bb-b7bfcf9fd108",
+    "location": "file:///data/home/hysdsops/zhan/artifact-deposit-repo/jplzhan/gedi-subset/main/test_cache_dir",
+    "path": "/home7/rciotti/maap/git/maap-ci-stage-io/cache"
+  },
+  "cache_only": false,
+  "input_path": {
+    "url": "https://github.com/wmgeolab/geoBoundaries/raw/9f8c9e0f3aa13c5d07efaf10a829e3be024973fa/releaseData/gbOpen/GAB/ADM0/geoBoundaries-GAB-ADM0.geojson"
+  }
+}
