@@ -248,9 +248,10 @@ class Cache:
 		Returns full path on lock success, otherwise warn and return false to caller
 		"""
 
-		user_name=pwd.getpwuid(os.getuid())[0]
+		# This is not a viable method of getting the username because CWL runs inside of a docker container
+		#user_name=pwd.getpwuid(os.getuid())[0]
 
-		full_cache_file_path= os.path.join(cache_dir, user_name, 'S3cache', cache_file_path)
+		full_cache_file_path= os.path.join(cache_dir, 'S3cache', cache_file_path)
 
 		try:
 			os.makedirs(os.path.dirname(full_cache_file_path), exist_ok=True)
@@ -312,34 +313,11 @@ class Cache:
 		Returns string containing file location or null ""
 		"""
 
-		try:
-			user_name = pwd.getpwuid(os.getuid())[0]
-				
-			# look for path in the users private cache
-			full_path = os.path.join(cache_dir, user_name, 'S3cache', unique_cacheable_file_path)
-			if os.path.exists(full_path):
-				if restage_in:
-					logger.warning('removing file from cache and restaging in: ' + full_path)
-					os.remove(full_path)
-					return ''
-
-				if integrity_func(**params):
-					return full_path
-
-				# failed integrity
-				logger.warning('removing file that failed integrity check in user cache: ' + full_path)
-				os.remove(full_path)
-				return ''
-
-		except KeyError as e:
-			logger.error('Exception caught within Cache.cache_hit(): {}'.format(str(e)))
-
 		# look for path in the systems public cache
 		full_path = os.path.join(cache_dir, 'S3cache', unique_cacheable_file_path)
 		if os.path.exists(full_path):
 			if restage_in:
 				logger.warning('ignoring file in system cache - can not restage: ' + full_path)
-				#can't os.remove(full_path)
 				return ''
 
 			if integrity_func(**params):
@@ -347,7 +325,6 @@ class Cache:
 
 			# failed integrity
 			logger.warning('ignoring file that failed integrity check in system cache: ' + full_path)
-			#can't os.remove(full_path)
 			return ''
 
 		return ''
