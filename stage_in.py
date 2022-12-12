@@ -332,7 +332,7 @@ class Cache:
 				return ''
 
 		except KeyError as e:
-			logger.error('Exception caught within Cache.cache_hit(): {}'.format(e.what()))
+			logger.error('Exception caught within Cache.cache_hit(): {}'.format(str(e)))
 
 		# look for path in the systems public cache
 		full_path = os.path.join(cache_dir, 'S3cache', unique_cacheable_file_path)
