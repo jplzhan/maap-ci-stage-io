@@ -471,7 +471,7 @@ def main(argc: int, argv: list) -> int:
 	cache_only = inputs_json.get('cache_only', False)
 	cache_dir = inputs_json.get('cache_dir')['path'] if inputs_json.get('cache_dir') is not None else ''
 
-	dest_dir = os.path.join(os.getcwd(), 'inputs') if cache_dir == '' else cache_dict['path']
+	dest_dir = os.path.join(os.getcwd(), 'inputs') if cache_dir == '' else cache_dir['path']
 
 	# Use a dictionary to determine which execution branch to use
 	staging_map = {
