@@ -103,6 +103,9 @@ class StageIn:
 			str: relative path to the staged-in input file
 		"""
 
+		# Create the parent directory if it does not exist
+		Util.create_dest(os.path.dirname(dest_file))
+
 		# download input file
 		r = requests.get(url, headers=headers, stream=True, verify=False)
 		r.raise_for_status()
@@ -122,6 +125,9 @@ class StageIn:
 		Returns:
 			str: relative path to the staged-in input file
 		"""
+
+		# Create the parent directory if it does not exist
+		Util.create_dest(os.path.dirname(dest_file))
 
 		if cred is None:
 			s3 = boto3.client('s3', config=Config(signature_version=UNSIGNED))
@@ -150,6 +156,9 @@ class StageIn:
 		Returns:
 			str: relative path to the staged-in input file
 		"""
+
+		# Create the parent directory if it does not exist
+		Util.create_dest(os.path.dirname(dest_file))
 
 		# Set the MAAP token if it is not None
 		if maap_pgt is not None:
@@ -182,6 +191,9 @@ class StageIn:
 		
 		Calls StageIn.stage_in_http after initialization of the MAAP headers.
 		"""
+
+		# Create the parent directory if it does not exist
+		Util.create_dest(os.path.dirname(dest_file))
 
 		# Set the MAAP token if it is not None
 		if maap_pgt is not None:
