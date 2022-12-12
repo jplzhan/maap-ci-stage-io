@@ -300,39 +300,39 @@ class Cache:
 		Returns string containing file location or null ""
 		"""
 
-		user_name=pwd.getpwuid(os.getuid())[0]
+		user_name = pwd.getpwuid(os.getuid())[0]
 
 		# look for path in the users private cache
-		if os.path.exists(full_path:=os.path.join(cache_dir, user_name, 'S3cache', unique_cacheable_file_path)):
+		full_path = os.path.join(cache_dir, user_name, 'S3cache', unique_cacheable_file_path)
+		if os.path.exists(full_path):
 			if restage_in:
-				logger.warning('removing file from cache and restaging in: '+ full_path)
+				logger.warning('removing file from cache and restaging in: ' + full_path)
 				os.remove(full_path)
 				return ''
 
 			if integrity_func(**params):
-				return   full_path
+				return full_path
 
-			else:
-				# failed integrity
-				logger.warning('removing file that failed integrity check in user cache: '+ full_path)
-				os.remove(full_path)
-				return ''
+			# failed integrity
+			logger.warning('removing file that failed integrity check in user cache: ' + full_path)
+			os.remove(full_path)
+			return ''
 
 		# look for path in the systems public cache
-		if os.path.exists(full_path:=os.path.join(cache_dir, 'S3cache', unique_cacheable_file_path)):
+		full_path = os.path.join(cache_dir, 'S3cache', unique_cacheable_file_path)
+		if os.path.exists(full_path):
 			if restage_in:
-				logger.warning('ignoring file in system cache - can not restage: '+ full_path)
+				logger.warning('ignoring file in system cache - can not restage: ' + full_path)
 				#can't os.remove(full_path)
 				return ''
 
 			if integrity_func(**params):
-				return   full_path
+				return full_path
 
-			else:
-				# failed integrity
-				logger.warning('ignoring file that failed integrity check in system cache: '+ full_path)
-				#can't os.remove(full_path)
-				return ''
+			# failed integrity
+			logger.warning('ignoring file that failed integrity check in system cache: ' + full_path)
+			#can't os.remove(full_path)
+			return ''
 
 		return ''
 
@@ -541,7 +541,8 @@ def main(argc: int, argv: list) -> int:
 			staged_file = os.path.join(os.path.join(dest_dir, str(i)), os.path.basename(p.path))
 
 			# check to see that we have a cache dir and a path that we can cache to
-			if (cache_dir == '' or (not (unique_cacheable_file_path := Cache.cacheable_path(possibly_cacheable_url)))):
+			unique_cacheable_file_path = Cache.cacheable_path(possibly_cacheable_url)
+			if (cache_dir == '' or not unique_cacheable_file_path):
 				# no caching directory or not a cacheable path
 				if stage_file_to_input:
 					dl_style = 'DownloadedToInput'
@@ -552,10 +553,12 @@ def main(argc: int, argv: list) -> int:
 					continue
 
 			# we are caching and have a unique_cacheable_file_path so the download object can be stored in the cache
-			if not (full_cache_file_path := Cache.cache_hit(cache_dir, unique_cacheable_file_path, restage_in, integrity_func, joined_params)):
+			full_cache_file_path = Cache.cache_hit(cache_dir, unique_cacheable_file_path, restage_in, integrity_func, joined_params)
+			if not full_cache_file_path:
 
 				# we have cache miss, so go get it into the cache
-				if not (full_cache_file_path := Cache.lock_cache(cache_dir, unique_cacheable_file_path)):
+				full_cache_file_path = Cache.lock_cache(cache_dir, unique_cacheable_file_path)
+				if not full_cache_file_path:
 
 					# failed to lock the cache for file download - copy it to default input as a backup plan
 					logger.warning('Failed to lock file for download: '+ unique_cacheable_file_path)
