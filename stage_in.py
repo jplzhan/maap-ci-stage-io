@@ -92,6 +92,13 @@ class Util:
 		os.rename(dl_path, renamed)
 		return renamed
 
+	@staticmethod
+	def copy_file(src, dest):
+		"""Copies a src file to a destination directory, creating the destination directory if it does not exist."""
+		Util.create_dest(os.path.dirname(os.path.abspath(dest)))
+		shutil.copy(src, dest)
+		
+
 class StageIn:
 	@staticmethod
 	def stage_in_http(url: str, dest_file: str, headers: str = None) -> str:
@@ -584,7 +591,7 @@ def main(argc: int, argv: list) -> int:
 
 					# file is now in cache 
 					if stage_file_to_input:
-						shutil.copy(full_cache_file_path, staged_file)
+						Util.copy_file(full_cache_file_path, staged_file)
 						dl_style=dl_style+':CopyToInput'
 						dl_path = staged_file
 						Util.rename_file(i, dl_path)
@@ -596,7 +603,7 @@ def main(argc: int, argv: list) -> int:
 				dl_path=full_cache_file_path
 
 				if stage_file_to_input:
-					shutil.copy(full_cache_file_path, staged_file)
+					Util.copy_file(full_cache_file_path, staged_file)
 					dl_style=dl_style+':CopyToInput'
 					dl_path = staged_file
 					Util.rename_file(i, dl_path)
