@@ -327,7 +327,8 @@ class Cache:
 				logger.warning('ignoring file in system cache - can not restage: ' + full_path)
 				return ''
 
-			if integrity_func(**params):
+			# TODO - Must revise because right now, sometimes this is NoneType. Please fix.
+			if not callable(integrity_func) or integrity_func(**params):
 				return full_path
 
 			# failed integrity
