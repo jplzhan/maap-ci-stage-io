@@ -312,23 +312,27 @@ class Cache:
 		Returns string containing file location or null ""
 		"""
 
-		user_name = pwd.getpwuid(os.getuid())[0]
+		try:
+			user_name = pwd.getpwuid(os.getuid())[0]
+				
+			# look for path in the users private cache
+			full_path = os.path.join(cache_dir, user_name, 'S3cache', unique_cacheable_file_path)
+			if os.path.exists(full_path):
+				if restage_in:
+					logger.warning('removing file from cache and restaging in: ' + full_path)
+					os.remove(full_path)
+					return ''
 
-		# look for path in the users private cache
-		full_path = os.path.join(cache_dir, user_name, 'S3cache', unique_cacheable_file_path)
-		if os.path.exists(full_path):
-			if restage_in:
-				logger.warning('removing file from cache and restaging in: ' + full_path)
+				if integrity_func(**params):
+					return full_path
+
+				# failed integrity
+				logger.warning('removing file that failed integrity check in user cache: ' + full_path)
 				os.remove(full_path)
 				return ''
 
-			if integrity_func(**params):
-				return full_path
-
-			# failed integrity
-			logger.warning('removing file that failed integrity check in user cache: ' + full_path)
-			os.remove(full_path)
-			return ''
+		except KeyError as e:
+			logger.error('Exception caught within Cache.cache_hit(): {}'.format(e.what()))
 
 		# look for path in the systems public cache
 		full_path = os.path.join(cache_dir, 'S3cache', unique_cacheable_file_path)
