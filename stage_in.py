@@ -418,8 +418,9 @@ def main(argc: int, argv: list) -> int:
 			   approach would be to configure cwl to use an actual shared filesystem instead of the default /tmp, which may have unexpected \
 			   memory consumption due to input/output file sizes.\n\n')
 
+	parser.add_argument('-c', dest='caching_directory', metavar='<path>', action='store', help='path to local cache directory')
 	parser.add_argument('-r', dest='restage_in', action='store_true', help='ignore any previously cached file')
-	parser.add_argument('-d', dest='debug'     , action='store_true', help='ignore any previously cached file')
+	parser.add_argument('-d', dest='debug', action='store_true', help='ignore any previously cached file')
 
 	args, nargv = parser.parse_known_args()
 
@@ -458,7 +459,7 @@ def main(argc: int, argv: list) -> int:
 	# Extract the input parameters and supplementary flags
 	input_path = inputs_json['input_path']
 	cache_only = inputs_json.get('cache_only', False)
-	cache_dir = inputs_json.get('cache_dir')['path'] if inputs_json.get('cache_dir') is not None else ''
+	cache_dir = args.caching_directory
 
 	dest_dir = os.path.join(os.getcwd(), 'inputs') if cache_dir == '' else cache_dir
 
