@@ -459,7 +459,7 @@ def main(argc: int, argv: list) -> int:
 	# Extract the input parameters and supplementary flags
 	input_path = inputs_json['input_path']
 	cache_only = inputs_json.get('cache_only', False)
-	cache_dir = args.caching_directory
+	cache_dir = args.caching_directory if args.caching_directory is not None else ''
 
 	dest_dir = os.path.join(os.getcwd(), 'inputs') if cache_dir == '' else cache_dir
 
